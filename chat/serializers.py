@@ -58,10 +58,21 @@ class ConversationListSerializer(serializers.ModelSerializer):
     """
     message_count = serializers.SerializerMethodField()
     last_message = serializers.SerializerMethodField()
+    chat_started_at = serializers.SerializerMethodField()
+    last_interacted_at = serializers.SerializerMethodField()
 
     class Meta:
         model = Conversation
-        fields = ['id', 'title', 'updated_at', 'message_count', 'last_message']
+        fields = [
+            'id',
+            'title',
+            'created_at',
+            'updated_at',
+            'chat_started_at',
+            'last_interacted_at',
+            'message_count',
+            'last_message'
+        ]
 
     def get_message_count(self, obj):
         return obj.messages.count()
@@ -74,6 +85,12 @@ class ConversationListSerializer(serializers.ModelSerializer):
                 'content': last_msg.content[:50] + '...' if len(last_msg.content) > 50 else last_msg.content
             }
         return None
+
+    def get_chat_started_at(self, obj):
+        return obj.created_at.strftime('%Y-%m-%d %H:%M') if obj.created_at else None
+
+    def get_last_interacted_at(self, obj):
+        return obj.updated_at.strftime('%Y-%m-%d %H:%M') if obj.updated_at else None
 
 
 

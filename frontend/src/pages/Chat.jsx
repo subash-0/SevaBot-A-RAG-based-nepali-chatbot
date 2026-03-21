@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { conversationAPI, authAPI, messageAPI } from '../services/api';
-import Sidebar from '.././components/Sidebar';
-import DocumentUpload from '.././components/DocumentUpload';
+import Sidebar from '../components/Sidebar';
+import DocumentUpload from '../components/DocumentUpload';
 
 export default function Chat() {
   const navigate = useNavigate();
@@ -17,22 +17,28 @@ export default function Chat() {
   const [user, setUser] = useState(null);
   const [editingMessageId, setEditingMessageId] = useState(null);
   const [editContent, setEditContent] = useState('');
+  const [lastSources, setLastSources] = useState(null);
+  const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
     const userData = localStorage.getItem('user');
+    const savedTheme = localStorage.getItem('chat-theme');
     if (userData) {
       setUser(JSON.parse(userData));
+    }
+    if (savedTheme === 'dark') {
+      setIsDark(true);
     }
     loadConversations();
   }, []);
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    localStorage.setItem('chat-theme', isDark ? 'dark' : 'light');
+  }, [isDark]);
 
-  const scrollToBottom = () => {
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  }, [messages]);
 
   const loadConversations = async () => {
     try {
@@ -47,8 +53,9 @@ export default function Chat() {
     try {
       const response = await conversationAPI.get(id);
       setActiveConversation(response.data);
-      setMessages(response.data.messages);
-      setSidebarOpen(false); // Close sidebar on mobile after selection
+      setMessages(response.data.messages || []);
+      setSidebarOpen(false);
+      setLastSources(null);
     } catch (error) {
       console.error('Failed to load conversation:', error);
     }
@@ -57,67 +64,62 @@ export default function Chat() {
   const startNewChat = async () => {
     try {
       const response = await conversationAPI.create({ title: 'नयाँ कुराकानी' });
-      setConversations([response.data, ...conversations]);
+      setConversations((prev) => [response.data, ...prev]);
       setActiveConversation(response.data);
       setMessages([]);
-      setSidebarOpen(false); // Close sidebar on mobile
+      setSidebarOpen(false);
+      setLastSources(null);
+      return response.data;
     } catch (error) {
       console.error('Failed to create conversation:', error);
+      return null;
     }
   };
 
-  const handleSendMessage = async (e) => {
-    e.preventDefault();
-    if (!inputValue.trim() || loading) return;
-
-    if (!activeConversation) {
-      await startNewChat();
-      setTimeout(() => sendMessageToConversation(inputValue), 100);
-      return;
-    }
-
-    await sendMessageToConversation(inputValue);
-  };
-
-  const sendMessageToConversation = async (content) => {
+  const sendMessageToConversation = async (conversationId, content) => {
     setLoading(true);
     const tempUserMessage = {
       id: Date.now(),
       role: 'user',
-      content: content,
+      content,
       created_at: new Date().toISOString(),
     };
 
-    setMessages([...messages, tempUserMessage]);
+    setMessages((prev) => [...prev, tempUserMessage]);
     setInputValue('');
 
     try {
-      const response = await conversationAPI.addMessage(activeConversation.id, content);
+      const response = await conversationAPI.addMessage(conversationId, content);
+      if (response.data.sources) {
+        setLastSources(response.data.sources);
+      }
 
-      setMessages(prev => {
-        const withoutTemp = prev.filter(m => m.id !== tempUserMessage.id);
-        return [
-          ...withoutTemp,
-          response.data.user_message,
-          response.data.assistant_message,
-        ];
+      setMessages((prev) => {
+        const withoutTemp = prev.filter((message) => message.id !== tempUserMessage.id);
+        return [...withoutTemp, response.data.user_message, response.data.assistant_message];
       });
 
-      if (messages.length === 0) {
-        const updatedConv = {
-          ...activeConversation,
-          title: content.slice(0, 50),
-        };
-        await conversationAPI.update(activeConversation.id, updatedConv);
-        loadConversations();
-      }
+      loadConversations();
     } catch (error) {
       console.error('Failed to send message:', error);
-      setMessages(prev => prev.filter(m => m.id !== tempUserMessage.id));
+      setMessages((prev) => prev.filter((message) => message.id !== tempUserMessage.id));
       alert('प्रश्न पठाउन असफल भयो। पुन: प्रयास गर्नुहोस्।');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSendMessage = async (event) => {
+    event.preventDefault();
+    if (!inputValue.trim() || loading) return;
+
+    let targetConversation = activeConversation;
+    if (!targetConversation) {
+      targetConversation = await startNewChat();
+      if (!targetConversation) return;
+    }
+
+    await sendMessageToConversation(targetConversation.id, inputValue.trim());
   };
 
   const handleLogout = async () => {
@@ -132,22 +134,8 @@ export default function Chat() {
     }
   };
 
-  const handleDocumentUploadComplete = (document) => {
-    console.log('Document processed:', document);
-    // Reload conversations to show updated document count
+  const handleDocumentUploadComplete = () => {
     loadConversations();
-  };
-
-  const handleDeleteMessage = async (messageId) => {
-    if (!window.confirm('यो सन्देश मेटाउन निश्चित हुनुहुन्छ?')) return;
-
-    try {
-      await messageAPI.delete(messageId);
-      setMessages(prev => prev.filter(m => m.id !== messageId));
-    } catch (error) {
-      console.error('Failed to delete message:', error);
-      alert('सन्देश मेटाउन असफल भयो।');
-    }
   };
 
   const handleStartEdit = (message) => {
@@ -166,26 +154,23 @@ export default function Chat() {
     setLoading(true);
     try {
       const response = await messageAPI.update(messageId, editContent);
-
-      // Update messages: replace edited user message and add new assistant response
-      setMessages(prev => {
-        const filtered = prev.filter(m => m.id !== messageId);
-        // Also remove old assistant response if it exists
-        const userMsgIndex = prev.findIndex(m => m.id === messageId);
+      setMessages((prev) => {
+        const filtered = prev.filter((message) => message.id !== messageId);
+        const userMsgIndex = prev.findIndex((message) => message.id === messageId);
         if (userMsgIndex !== -1 && userMsgIndex + 1 < prev.length) {
           const nextMsg = prev[userMsgIndex + 1];
           if (nextMsg.role === 'assistant') {
             return [
-              ...filtered.filter(m => m.id !== nextMsg.id),
+              ...filtered.filter((message) => message.id !== nextMsg.id),
               response.data.user_message,
-              response.data.assistant_message
+              response.data.assistant_message,
             ].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
           }
         }
         return [
           ...filtered,
           response.data.user_message,
-          response.data.assistant_message
+          response.data.assistant_message,
         ].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
       });
 
@@ -202,21 +187,19 @@ export default function Chat() {
   const handleCopyMessage = async (content) => {
     try {
       await navigator.clipboard.writeText(content);
-      // Silent copy - no alert
     } catch (error) {
       console.error('Failed to copy:', error);
     }
   };
 
   const handleDeleteConversation = async (conversationId) => {
-    alert("Delete conversation");
     try {
       await conversationAPI.delete(conversationId);
-      setConversations(prev => prev.filter(c => c.id !== conversationId));
-
+      setConversations((prev) => prev.filter((conversation) => conversation.id !== conversationId));
       if (activeConversation?.id === conversationId) {
         setActiveConversation(null);
         setMessages([]);
+        setLastSources(null);
       }
     } catch (error) {
       console.error('Failed to delete conversation:', error);
@@ -224,9 +207,44 @@ export default function Chat() {
     }
   };
 
+  const renderSourceBadges = () => {
+    if (!lastSources) return null;
+    const reranking = lastSources.reranking_info || [];
+    if (!reranking.length) return null;
+
+    const hasReranking = reranking.some((item) => item.rerank_score !== undefined);
+    const avgScore = reranking.reduce((sum, item) => sum + (item.rerank_score || item.score || 0), 0) / reranking.length;
+
+    const sourceCounts = lastSources.source_counts || {};
+    const userDocUsed = lastSources.user_document ?? (sourceCounts.user_document || 0) > 0;
+    const permanentUsed = lastSources.permanent_kb ?? (sourceCounts.permanent_kb || 0) > 0;
+
+    return (
+      <div className="mt-3 flex items-center gap-2 flex-wrap">
+        <span className="inline-flex items-center rounded-full border border-primary-200 bg-primary-50 px-2.5 py-1 text-[10px] font-semibold text-primary-700">
+            {reranking.length} सन्दर्भ
+        </span>
+        {hasReranking && (
+            <span className="inline-flex items-center rounded-full border border-primary-300 bg-primary-100 px-2.5 py-1 text-[10px] font-semibold text-primary-800">
+            Reranked • {(avgScore * 100).toFixed(0)}%
+          </span>
+        )}
+        {permanentUsed && (
+          <span className="inline-flex items-center rounded-full border border-primary-300 bg-primary-100 px-2.5 py-1 text-[10px] font-semibold text-primary-800">
+            स्थायी ज्ञान
+          </span>
+        )}
+        {userDocUsed && (
+          <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-blue-700">
+            अपलोड दस्तावेज
+          </span>
+        )}
+      </div>
+    );
+  };
+
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50">
-      {/* Responsive Sidebar */}
+    <div className={`flex h-screen overflow-hidden ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
       <Sidebar
         conversations={conversations}
         activeConversation={activeConversation}
@@ -239,160 +257,87 @@ export default function Chat() {
         onDeleteConversation={handleDeleteConversation}
       />
 
-      {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Header with Branding */}
-        <div className="bg-white border-b border-gray-200 shadow-sm px-4 py-3 flex items-center gap-3 flex-shrink-0">
-          {/* Hamburger Menu - Hidden on Desktop */}
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="md:hidden p-2 hover:bg-gray-100 rounded-lg transition text-gray-600"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
+      <div className={`flex-1 min-w-0 flex flex-col ${isDark ? 'bg-[radial-gradient(circle_at_top,_#1e293b,_#0f172a_45%,_#020617)]' : 'bg-[radial-gradient(circle_at_top,_#f8fafc,_#eef2ff_35%,_#e2e8f0)]'}`}>
+        <div className={`border-b backdrop-blur px-4 py-3 md:px-6 flex items-center gap-3 ${isDark ? 'border-slate-700/60 bg-slate-900/70' : 'border-white/70 bg-white/80'}`}>
+          <button onClick={() => setSidebarOpen(true)} className="md:hidden p-1.5 hover:bg-primary-100 rounded-lg transition text-primary-700">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
           </button>
-
-          {/* Branding */}
-          <div className="flex-1">
-            <h1 className="text-lg md:text-xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              SevaBot: A RAG Based Nepali Chatbot
-            </h1>
-            <p className="text-xs text-gray-500 hidden sm:block">
-              नेपाली कानुनी सहायक | Retrieval-Augmented Generation System
-            </p>
+          <div className="flex-1 min-w-0">
+            <h1 className={`text-base md:text-lg font-bold tracking-tight truncate ${isDark ? 'text-slate-100' : 'text-primary-900'}`}>Nepali Legal Research Assistant</h1>
           </div>
+          <button
+            onClick={() => setIsDark((prev) => !prev)}
+            className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${isDark ? 'border-slate-600 bg-slate-800 text-slate-100 hover:bg-slate-700' : 'border-primary-200 bg-white text-primary-700 hover:bg-primary-50'}`}
+            title="Toggle theme"
+          >
+            <span>{isDark ? '☀️' : '🌙'}</span>
+            <span>{isDark ? 'Light' : 'Dark'}</span>
+          </button>
         </div>
 
-        {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto px-4 py-6">
+        <div className="flex-1 overflow-y-auto px-4 py-6 md:px-8 md:py-8">
           {messages.length === 0 ? (
             <div className="h-full flex items-center justify-center">
-              <div className="text-center text-gray-600 max-w-2xl px-4">
-                <div className="text-6xl md:text-7xl mb-4">⚖️</div>
-                <h2 className="text-2xl md:text-3xl font-bold mb-3 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                  नमस्कार! म SevaBot हुँ
-                </h2>
-                <p className="text-base md:text-lg mb-6">तपाईंको नेपाली कानुनी सहायक</p>
-
-                <div className="bg-gradient-to-br from-blue-50 to-purple-50 border border-blue-200 rounded-2xl p-4 md:p-6 text-left shadow-lg">
-                  <h3 className="font-bold text-base md:text-lg mb-4 text-blue-900">कसरी प्रयोग गर्ने:</h3>
-                  <div className="space-y-3 text-sm md:text-base">
-                    <div className="flex items-start gap-3">
-                      <span className="text-xl md:text-2xl flex-shrink-0">📄</span>
-                      <div>
-                        <p className="font-semibold">१. दस्तावेज अपलोड गर्नुहोस्</p>
-                        <p className="text-xs md:text-sm text-gray-600">तलको 📎 बटनमा क्लिक गरी PDF अपलोड गर्नुहोस्</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <span className="text-xl md:text-2xl flex-shrink-0">⏳</span>
-                      <div>
-                        <p className="font-semibold">२. प्रक्रिया पूरा हुन प्रतीक्षा गर्नुहोस्</p>
-                        <p className="text-xs md:text-sm text-gray-600">दस्तावेज प्रक्रिया भएपछि प्रश्न सोध्न सक्नुहुन्छ</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <span className="text-xl md:text-2xl flex-shrink-0">💬</span>
-                      <div>
-                        <p className="font-semibold">३. नेपालीमा प्रश्न सोध्नुहोस्</p>
-                        <p className="text-xs md:text-sm text-gray-600">म दस्तावेज र सामान्य ज्ञानको आधारमा उत्तर दिनेछु</p>
-                      </div>
+              <div className="w-full max-w-3xl px-4 text-center">
+                <div className="w-16 h-16 bg-primary-900 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-primary-900/20"><span className="text-3xl">⚖️</span></div>
+                <h2 className="np-heading text-2xl mb-2 text-primary-900">नमस्कार!</h2>
+                <p className="text-primary-600 text-sm mb-8">तपाईंको नेपाली कानुनी सहायक — Retrieval-Augmented Generation with SBERT Reranking</p>
+                <div className="grid md:grid-cols-2 gap-4 text-left">
+                  <div className="rounded-2xl border border-primary-200 bg-white/90 p-5 shadow-sm">
+                    <h3 className="font-semibold text-sm text-primary-900 mb-3">कसरी प्रयोग गर्ने</h3>
+                    <div className="space-y-3 text-sm">
+                      <p><span className="font-semibold text-primary-800">1.</span> PDF दस्तावेज अपलोड गर्नुहोस्</p>
+                      <p><span className="font-semibold text-primary-800">2.</span> SBERT embedding र indexing पर्खनुहोस्</p>
+                      <p><span className="font-semibold text-primary-800">3.</span> नेपालीमा प्रश्न सोध्नुहोस्</p>
                     </div>
                   </div>
-
-                  <div className="mt-4 p-3 bg-white rounded-lg border border-blue-200">
-                    <p className="text-xs text-gray-600">
-                      <strong>ध्यान दिनुहोस्:</strong> SevaBot ले स्थायी कानुनी ज्ञान र तपाईंले अपलोड गर्नुभएको दस्तावेज दुवैबाट जानकारी प्रदान गर्छ।
-                    </p>
+                  <div className="rounded-2xl border border-primary-200 bg-gradient-to-br from-primary-900 to-primary-800 p-5 shadow-sm text-primary-100">
+                    <h3 className="font-semibold text-sm mb-3">Pipeline</h3>
+                    <div className="text-xs space-y-2 text-primary-200">
+                      <p>• Query Encoding with `multilingual-e5-large`</p>
+                      <p>• Dense Retrieval from ChromaDB</p>
+                      <p>• Cross-Encoder SBERT Reranking</p>
+                      <p>• Grounded Nepali Response Generation</p>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           ) : (
-            <div className="max-w-4xl mx-auto space-y-4 md:space-y-6">
-              {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div
-                    className={`max-w-[85%] md:max-w-[80%] rounded-2xl px-4 py-3 md:px-6 md:py-4 shadow-md ${message.role === 'user'
-                      ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white'
-                      : 'bg-white border border-gray-200 text-gray-800'
-                      }`}
-                  >
+            <div className="max-w-4xl mx-auto space-y-5">
+              {messages.map((message, index) => (
+                <div key={message.id} className={`flex message-enter ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[90%] md:max-w-[78%] rounded-2xl px-4 py-3 md:px-5 md:py-4 shadow-sm ${message.role === 'user' ? 'bg-primary-900 text-white shadow-primary-900/20' : isDark ? 'bg-slate-900/90 border border-slate-700 text-slate-100' : 'bg-white/95 border border-primary-200 text-primary-800'}`}>
                     {message.role === 'assistant' && (
-                      <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-gray-200">
-                        <div className="flex items-center gap-2">
-                          <span className="text-lg md:text-xl">🤖</span>
-                          <span className="font-semibold text-xs md:text-sm text-blue-600">SevaBot</span>
-                        </div>
-                        {/* Assistant message actions - Copy only */}
-                        <button
-                          onClick={() => handleCopyMessage(message.content)}
-                          className="p-1.5 hover:bg-gray-100 rounded-lg transition"
-                          title="प्रतिलिपि गर्नुहोस्"
-                        >
-                          <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                          </svg>
-                        </button>
+                      <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-primary-100">
+                        <div className="flex items-center gap-2"><div className="w-6 h-6 bg-primary-100 rounded-lg flex items-center justify-center"><span className="text-xs">⚖️</span></div><span className="font-semibold text-xs text-primary-700">Legal Assistant</span></div>
+                        <button onClick={() => handleCopyMessage(message.content)} className="p-1.5 hover:bg-primary-100 rounded-lg transition" title="प्रतिलिपि गर्नुहोस्"><svg className="w-3.5 h-3.5 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button>
                       </div>
                     )}
 
-                    {/* Message content or edit mode */}
                     {editingMessageId === message.id ? (
-                      <div className="space-y-3 bg-gray-50 p-4 rounded-lg border-2 border-blue-300">
-                        <div className="text-xs font-semibold text-blue-700 mb-2">✏️ सम्पादन गर्दै</div>
+                      <div className="space-y-2">
                         <textarea
                           value={editContent}
                           onChange={(e) => setEditContent(e.target.value)}
-                          className="w-full p-3 border-2 border-gray-300 rounded-lg text-gray-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
-                          rows="4"
+                          className={`w-full px-1 py-1 rounded-lg text-sm transition border-0 outline-none focus:outline-none focus:ring-0 bg-transparent ${message.role === 'user' ? 'text-white placeholder:text-primary-300' : isDark ? 'text-slate-100 placeholder:text-slate-400' : 'text-primary-800 placeholder:text-primary-400'}`}
+                          rows="3"
                           autoFocus
-                          placeholder="आफ्नो प्रश्न सम्पादन गर्नुहोस्..."
+                          placeholder=""
                         />
                         <div className="flex gap-2 justify-end">
-                          <button
-                            onClick={handleCancelEdit}
-                            className="px-4 py-2 text-sm font-medium bg-white border-2 border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg transition"
-                          >
-                            रद्द गर्नुहोस्
-                          </button>
-                          <button
-                            onClick={() => handleSaveEdit(message.id)}
-                            disabled={loading}
-                            className="px-4 py-2 text-sm font-medium bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
-                          >
-                            {loading ? '⏳ पठाउँदै...' : '✓ सुरक्षित गर्नुहोस्'}
-                          </button>
+                          <button onClick={handleCancelEdit} className={`px-3 py-1.5 text-xs font-medium rounded-lg transition ${message.role === 'user' ? 'bg-white/10 text-white hover:bg-white/20' : isDark ? 'bg-slate-700 text-slate-100 hover:bg-slate-600' : 'bg-primary-100 text-primary-700 hover:bg-primary-200'}`}>Cancel</button>
+                          <button onClick={() => handleSaveEdit(message.id)} disabled={loading} className="px-3 py-1.5 text-xs font-medium bg-white text-primary-900 hover:bg-primary-100 rounded-lg transition disabled:opacity-50">OK</button>
                         </div>
                       </div>
                     ) : (
                       <>
-                        <div className="whitespace-pre-wrap leading-relaxed text-sm md:text-base">
-                          {message.content}
-                        </div>
-                        <div className="flex items-center justify-between mt-2">
-                          <div
-                            className={`text-xs ${message.role === 'user' ? 'text-blue-100' : 'text-gray-400'
-                              }`}
-                          >
-                            {new Date(message.created_at).toLocaleTimeString('ne-NP')}
-                          </div>
-
-                          {/* User message actions - Edit only */}
+                        <div className="whitespace-pre-wrap leading-relaxed text-sm np-text">{message.content}</div>
+                        {message.role === 'assistant' && index === messages.length - 1 && renderSourceBadges()}
+                        <div className="flex items-center justify-between mt-3">
+                          <div className={`text-[10px] ${message.role === 'user' ? 'text-primary-300' : 'text-primary-500'}`}>{new Date(message.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</div>
                           {message.role === 'user' && (
-                            <button
-                              onClick={() => handleStartEdit(message)}
-                              className="p-1.5 hover:bg-blue-800 rounded-lg transition"
-                              title="सम्पादन गर्नुहोस्"
-                            >
-                              <svg className="w-4 h-4 text-blue-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                              </svg>
-                            </button>
+                            <button onClick={() => handleStartEdit(message)} className="p-1.5 hover:bg-white/10 rounded-lg transition" title="सम्पादन गर्नुहोस्"><svg className="w-3.5 h-3.5 text-primary-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
                           )}
                         </div>
                       </>
@@ -400,17 +345,23 @@ export default function Chat() {
                   </div>
                 </div>
               ))}
+
+              {loading && (
+                <div className="flex justify-start message-enter">
+                  <div className="rounded-2xl border border-primary-200 bg-white px-4 py-3 shadow-sm">
+                    <div className="flex items-center gap-2"><div className="w-6 h-6 bg-primary-100 rounded-lg flex items-center justify-center"><span className="text-xs">⚖️</span></div><span className="text-xs text-primary-600">Retrieving & reranking...</span><div className="flex gap-1 ml-1"><div className="w-1.5 h-1.5 bg-primary-400 rounded-full typing-dot"></div><div className="w-1.5 h-1.5 bg-primary-400 rounded-full typing-dot"></div><div className="w-1.5 h-1.5 bg-primary-400 rounded-full typing-dot"></div></div></div>
+                  </div>
+                </div>
+              )}
+
               <div ref={messagesEndRef} />
             </div>
           )}
         </div>
 
-        {/* Gemini-Style Input Box */}
-        <div className="border-t border-gray-200 bg-white px-4 py-4 flex-shrink-0">
+          <div className={`border-t backdrop-blur px-4 py-3 md:px-6 ${isDark ? 'border-slate-700/60 bg-slate-900/70' : 'border-white/70 bg-white/80'}`}>
           <form onSubmit={handleSendMessage} className="max-w-4xl mx-auto">
-            {/* Container with relative positioning */}
-            <div className="relative">
-              {/* Textarea with padding for buttons */}
+            <div className={`relative rounded-2xl border shadow-sm ${isDark ? 'border-slate-600 bg-slate-900' : 'border-primary-300 bg-white'}`}>
               <textarea
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
@@ -421,52 +372,21 @@ export default function Chat() {
                   }
                 }}
                 placeholder="आफ्नो प्रश्न नेपालीमा सोध्नुहोस्..."
-                className="w-full pl-12 pr-12 py-3 md:py-4 border-2 border-gray-300 rounded-2xl focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none hover:border-gray-400 transition text-sm md:text-base"
+                className={`w-full pl-12 pr-12 py-3 rounded-2xl resize-none transition text-sm np-text border-0 outline-none focus:outline-none focus:ring-0 ${isDark ? 'bg-transparent text-slate-100 placeholder:text-slate-400' : 'bg-transparent text-primary-900 placeholder:text-primary-500'}`}
                 rows="1"
                 disabled={loading}
-                style={{
-                  minHeight: '52px',
-                  maxHeight: '120px',
-                  fontFamily: 'system-ui, -apple-system, sans-serif'
-                }}
+                style={{ minHeight: '52px', maxHeight: '120px' }}
               />
 
-              {/* Attachment Button - Bottom Left */}
-              <div className="absolute bottom-3 left-3">
-                <DocumentUpload
-                  conversationId={activeConversation?.id}
-                  onUploadComplete={handleDocumentUploadComplete}
-                />
+              <div className="absolute top-1/2 -translate-y-1/2 left-3">
+                <DocumentUpload conversationId={activeConversation?.id} onUploadComplete={handleDocumentUploadComplete} />
               </div>
 
-              {/* Send Button - Bottom Right */}
-              <button
-                type="submit"
-                disabled={loading || !inputValue.trim()}
-                className="absolute bottom-3 right-3 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white p-2 md:p-2.5 rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg disabled:shadow-none"
-                title="पठाउनुहोस्"
-              >
+              <button type="submit" disabled={loading || !inputValue.trim()} className="absolute top-1/2 -translate-y-1/2 right-3 bg-primary-900 hover:bg-primary-800 text-white p-2 rounded-xl transition disabled:opacity-30 disabled:cursor-not-allowed" title="पठाउनुहोस्">
                 {loading ? (
-                  <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                      fill="none"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                    />
-                  </svg>
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>
                 ) : (
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                  </svg>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
                 )}
               </button>
             </div>
