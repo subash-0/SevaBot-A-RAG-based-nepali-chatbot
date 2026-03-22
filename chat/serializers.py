@@ -2,6 +2,31 @@ from rest_framework import serializers
 from django.contrib.auth.models import User
 from .models import Conversation, Message, Document
 
+
+def build_recent_exchange(conversation: Conversation):
+    """Return the most recent user query and its assistant reply with timestamps."""
+    last_assistant = conversation.messages.filter(role='assistant').order_by('-created_at').first()
+    last_user = None
+
+    if last_assistant:
+        # Pair the latest assistant reply with the closest preceding user query.
+        last_user = conversation.messages.filter(
+            role='user',
+            created_at__lte=last_assistant.created_at
+        ).order_by('-created_at').first()
+    else:
+        last_user = conversation.messages.filter(role='user').order_by('-created_at').first()
+
+    if not last_user and not last_assistant:
+        return None
+
+    return {
+        'query': last_user.content if last_user else None,
+        'query_time': last_user.created_at.isoformat() if last_user else None,
+        'answer': last_assistant.content if last_assistant else None,
+        'answer_time': last_assistant.created_at.isoformat() if last_assistant else None,
+    }
+
 class UserSerializer(serializers.ModelSerializer):
     """
     Serializer for user registration.
@@ -41,14 +66,18 @@ class ConversationSerializer(serializers.ModelSerializer):
     """
     messages = MessageSerializer(many=True, read_only=True)
     message_count = serializers.SerializerMethodField()
+    recent_exchange = serializers.SerializerMethodField()
 
     class Meta:
         model = Conversation
-        fields = ['id', 'title', 'created_at', 'updated_at', 'messages', 'message_count']
+        fields = ['id', 'title', 'created_at', 'updated_at', 'messages', 'message_count', 'recent_exchange']
         read_only_fields = ['id', 'created_at', 'updated_at']
 
     def get_message_count(self, obj):
         return obj.messages.count()
+
+    def get_recent_exchange(self, obj):
+        return build_recent_exchange(obj)
 
 
 class ConversationListSerializer(serializers.ModelSerializer):
@@ -60,6 +89,7 @@ class ConversationListSerializer(serializers.ModelSerializer):
     last_message = serializers.SerializerMethodField()
     chat_started_at = serializers.SerializerMethodField()
     last_interacted_at = serializers.SerializerMethodField()
+    recent_exchange = serializers.SerializerMethodField()
 
     class Meta:
         model = Conversation
@@ -71,7 +101,8 @@ class ConversationListSerializer(serializers.ModelSerializer):
             'chat_started_at',
             'last_interacted_at',
             'message_count',
-            'last_message'
+            'last_message',
+            'recent_exchange'
         ]
 
     def get_message_count(self, obj):
@@ -91,6 +122,9 @@ class ConversationListSerializer(serializers.ModelSerializer):
 
     def get_last_interacted_at(self, obj):
         return obj.updated_at.strftime('%Y-%m-%d %H:%M') if obj.updated_at else None
+
+    def get_recent_exchange(self, obj):
+        return build_recent_exchange(obj)
 
 
 

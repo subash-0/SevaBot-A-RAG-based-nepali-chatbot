@@ -119,7 +119,7 @@ export default function Sidebar({
                       className="w-full text-left p-3.5"
                     >
                       <div className="font-medium truncate text-sm text-primary-100 pr-6">
-                        {conv.title}
+                        {conv.recent_exchange?.query || conv.title}
                       </div>
                       <div className="text-xs text-primary-500 truncate mt-0.5">
                         {conv.last_message?.content || 'कुनै सन्देश छैन'}

@@ -248,6 +248,9 @@ class ConversationViewSet(viewsets.ModelViewSet):
             role='user',
             content=content
         )
+
+        # Update conversation title to the latest query (ChatGPT-like)
+        conversation.title = content[:80]
         
         # Generate AI response
         try:
@@ -363,17 +366,31 @@ class ConversationViewSet(viewsets.ModelViewSet):
                 'sources': {}
             }
         
-        # Log sources for debugging
-        sources = {}
+        # Build minimal source metadata: file name + source type
+        source_counts = {}
+        source_files = []
+        seen_files = set()
         for i, chunk in enumerate(top_chunks):
             source = chunk.get('source', 'unknown')
-            sources[source] = sources.get(source, 0) + 1
-            # Log detailed context (requested by user)
-            print(f"=== Chunk {i+1} [{source}] ===")
+            meta = chunk.get('metadata', {})
+            file_name = meta.get('source_file') or meta.get('filename') or meta.get('original_filename') or 'Unknown file'
+
+            source_counts[source] = source_counts.get(source, 0) + 1
+
+            key = f"{source}:{file_name}"
+            if key not in seen_files:
+                seen_files.add(key)
+                source_files.append({
+                    'source': source,
+                    'file': file_name,
+                })
+
+            # Log detailed context for observability
+            print(f"=== Chunk {i+1} [{source}] - {file_name} ===")
             print(f"{chunk.get('text', '')[:300]}...")
             print("================================\n")
             
-        print(f"Context sources: {sources}")
+        print(f"Context sources: {source_counts}")
         
         # Format RAG prompt
         prompt = rag_service.format_rag_prompt(user_input, top_chunks)
@@ -401,7 +418,9 @@ class ConversationViewSet(viewsets.ModelViewSet):
             # Store response to return with sources
             return {
                 'response': response.choices[0].message.content,
-                'sources': sources
+                'sources': {
+                    'files': source_files
+                }
             }
             
         except Exception as e:
@@ -486,6 +505,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                 search_source
             )
             assistant_content = response_data['response']
+            sources_payload = response_data.get('sources', {})
             
             # Create new assistant message
             assistant_message = Message.objects.create(
@@ -496,7 +516,8 @@ class MessageViewSet(viewsets.ModelViewSet):
             
             return Response({
                 'user_message': MessageSerializer(message).data,
-                'assistant_message': MessageSerializer(assistant_message).data
+                'assistant_message': MessageSerializer(assistant_message).data,
+                'sources': sources_payload
             })
             
         except Exception as e:

@@ -22,6 +22,29 @@ export default function Chat() {
   const [isDark, setIsDark] = useState(false);
   const [romanizedTypingEnabled, setRomanizedTypingEnabled] = useState(true);
 
+  const formatChatTimestamp = (isoString) => {
+    if (!isoString) return '';
+    const ts = new Date(isoString);
+    const now = new Date();
+
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfYesterday = new Date(startOfToday);
+    startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+
+    const timePart = ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+    if (ts >= startOfToday) {
+      return timePart;
+    }
+
+    if (ts >= startOfYesterday) {
+      return `Yesterday, ${timePart}`;
+    }
+
+    const datePart = ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return `${datePart} • ${timePart}`;
+  };
+
   useEffect(() => {
     const userData = localStorage.getItem('user');
     const savedTheme = localStorage.getItem('chat-theme');
@@ -186,6 +209,10 @@ export default function Chat() {
         ].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
       });
 
+      if (response.data.sources) {
+        setLastSources(response.data.sources);
+      }
+
       setEditingMessageId(null);
       setEditRawContent('');
     } catch (error) {
@@ -249,37 +276,29 @@ export default function Chat() {
   };
 
   const renderSourceBadges = () => {
-    if (!lastSources) return null;
-    const reranking = lastSources.reranking_info || [];
-    if (!reranking.length) return null;
-
-    const hasReranking = reranking.some((item) => item.rerank_score !== undefined);
-    const avgScore = reranking.reduce((sum, item) => sum + (item.rerank_score || item.score || 0), 0) / reranking.length;
-
-    const sourceCounts = lastSources.source_counts || {};
-    const userDocUsed = lastSources.user_document ?? (sourceCounts.user_document || 0) > 0;
-    const permanentUsed = lastSources.permanent_kb ?? (sourceCounts.permanent_kb || 0) > 0;
+    if (!lastSources?.files || !lastSources.files.length) return null;
 
     return (
       <div className="mt-3 flex items-center gap-2 flex-wrap">
-        <span className="inline-flex items-center rounded-full border border-primary-200 bg-primary-50 px-2.5 py-1 text-[10px] font-semibold text-primary-700">
-            {reranking.length} सन्दर्भ
-        </span>
-        {hasReranking && (
-            <span className="inline-flex items-center rounded-full border border-primary-300 bg-primary-100 px-2.5 py-1 text-[10px] font-semibold text-primary-800">
-            Reranked • {(avgScore * 100).toFixed(0)}%
-          </span>
-        )}
-        {permanentUsed && (
-          <span className="inline-flex items-center rounded-full border border-primary-300 bg-primary-100 px-2.5 py-1 text-[10px] font-semibold text-primary-800">
-            स्थायी ज्ञान
-          </span>
-        )}
-        {userDocUsed && (
-          <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-blue-700">
-            अपलोड दस्तावेज
-          </span>
-        )}
+        {lastSources.files.map((fileItem, idx) => {
+          const isUser = fileItem.source === 'user_document';
+          return (
+            <span
+              key={`${fileItem.source}-${fileItem.file}-${idx}`}
+              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${isUser
+                ? 'border-blue-200 bg-blue-50 text-blue-700'
+                : 'border-primary-300 bg-primary-100 text-primary-800'}`}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4l2 4 4 .5-3 3 .8 4L12 13l-3.8 2.5.8-4-3-3 4-.5z" />
+              </svg>
+              <span className="truncate max-w-[140px]" title={`${fileItem.file} (${isUser ? 'User' : 'Permanent'})`}>
+                {fileItem.file}
+              </span>
+              <span className="uppercase text-[9px] tracking-wide">{isUser ? 'USER' : 'PERM'}</span>
+            </span>
+          );
+        })}
       </div>
     );
   };
@@ -376,7 +395,7 @@ export default function Chat() {
                         <div className="whitespace-pre-wrap leading-relaxed text-sm np-text">{message.content}</div>
                         {message.role === 'assistant' && index === messages.length - 1 && renderSourceBadges()}
                         <div className="flex items-center justify-between mt-3">
-                          <div className={`text-[10px] ${message.role === 'user' ? 'text-primary-300' : 'text-primary-500'}`}>{new Date(message.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</div>
+                          <div className={`text-[10px] ${message.role === 'user' ? 'text-primary-300' : 'text-primary-500'}`}>{formatChatTimestamp(message.created_at)}</div>
                           {message.role === 'user' && (
                             <button onClick={() => handleStartEdit(message)} className="p-1.5 hover:bg-white/10 rounded-lg transition" title="सम्पादन गर्नुहोस्"><svg className="w-3.5 h-3.5 text-primary-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
                           )}
