@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { conversationAPI, authAPI, messageAPI } from '../services/api';
 import Sidebar from '../components/Sidebar';
 import DocumentUpload from '../components/DocumentUpload';
+import { transliterate } from '../utils/nepaliRomanized';
 
 export default function Chat() {
   const navigate = useNavigate();
@@ -11,23 +12,28 @@ export default function Chat() {
   const [conversations, setConversations] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [inputValue, setInputValue] = useState('');
+  const [inputRaw, setInputRaw] = useState('');
   const [loading, setLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [user, setUser] = useState(null);
   const [editingMessageId, setEditingMessageId] = useState(null);
-  const [editContent, setEditContent] = useState('');
+  const [editRawContent, setEditRawContent] = useState('');
   const [lastSources, setLastSources] = useState(null);
   const [isDark, setIsDark] = useState(false);
+  const [romanizedTypingEnabled, setRomanizedTypingEnabled] = useState(true);
 
   useEffect(() => {
     const userData = localStorage.getItem('user');
     const savedTheme = localStorage.getItem('chat-theme');
+    const savedRomanizedTyping = localStorage.getItem('romanized-typing-enabled');
     if (userData) {
       setUser(JSON.parse(userData));
     }
     if (savedTheme === 'dark') {
       setIsDark(true);
+    }
+    if (savedRomanizedTyping === 'false') {
+      setRomanizedTypingEnabled(false);
     }
     loadConversations();
   }, []);
@@ -35,6 +41,10 @@ export default function Chat() {
   useEffect(() => {
     localStorage.setItem('chat-theme', isDark ? 'dark' : 'light');
   }, [isDark]);
+
+  useEffect(() => {
+    localStorage.setItem('romanized-typing-enabled', romanizedTypingEnabled ? 'true' : 'false');
+  }, [romanizedTypingEnabled]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -86,7 +96,7 @@ export default function Chat() {
     };
 
     setMessages((prev) => [...prev, tempUserMessage]);
-    setInputValue('');
+    setInputRaw('');
 
     try {
       const response = await conversationAPI.addMessage(conversationId, content);
@@ -111,7 +121,8 @@ export default function Chat() {
 
   const handleSendMessage = async (event) => {
     event.preventDefault();
-    if (!inputValue.trim() || loading) return;
+    const toSend = romanizedTypingEnabled ? transliterate(inputRaw).trim() : inputRaw.trim();
+    if (!toSend || loading) return;
 
     let targetConversation = activeConversation;
     if (!targetConversation) {
@@ -119,7 +130,7 @@ export default function Chat() {
       if (!targetConversation) return;
     }
 
-    await sendMessageToConversation(targetConversation.id, inputValue.trim());
+    await sendMessageToConversation(targetConversation.id, toSend);
   };
 
   const handleLogout = async () => {
@@ -140,20 +151,21 @@ export default function Chat() {
 
   const handleStartEdit = (message) => {
     setEditingMessageId(message.id);
-    setEditContent(message.content);
+    setEditRawContent(message.content);
   };
 
   const handleCancelEdit = () => {
     setEditingMessageId(null);
-    setEditContent('');
+    setEditRawContent('');
   };
 
   const handleSaveEdit = async (messageId) => {
-    if (!editContent.trim()) return;
+    const toSend = romanizedTypingEnabled ? transliterate(editRawContent).trim() : editRawContent.trim();
+    if (!toSend) return;
 
     setLoading(true);
     try {
-      const response = await messageAPI.update(messageId, editContent);
+      const response = await messageAPI.update(messageId, toSend);
       setMessages((prev) => {
         const filtered = prev.filter((message) => message.id !== messageId);
         const userMsgIndex = prev.findIndex((message) => message.id === messageId);
@@ -175,7 +187,7 @@ export default function Chat() {
       });
 
       setEditingMessageId(null);
-      setEditContent('');
+      setEditRawContent('');
     } catch (error) {
       console.error('Failed to edit message:', error);
       alert('सन्देश सम्पादन असफल भयो।');
@@ -205,6 +217,35 @@ export default function Chat() {
       console.error('Failed to delete conversation:', error);
       alert('कुराकानी मेटाउन असफल भयो।');
     }
+  };
+
+  const handleRawChange = (incoming, setRaw) => {
+    if (!romanizedTypingEnabled) {
+      setRaw(incoming.target.value);
+      return;
+    }
+
+    const { inputType, data, clipboardData } = incoming.nativeEvent || {};
+    const targetValue = incoming.target.value;
+
+    setRaw((prev) => {
+      // Basic append / delete-at-end handling keeps roman context.
+      if (inputType?.startsWith('delete')) {
+        return prev.slice(0, -1);
+      }
+
+      if (inputType === 'insertFromPaste') {
+        const pasted = clipboardData?.getData('text') ?? incoming.clipboardData?.getData('text') ?? targetValue;
+        return pasted;
+      }
+
+      if (typeof data === 'string') {
+        return prev + data;
+      }
+
+      // Fallback: keep previous to avoid corrupting roman buffer when cursor edits occur.
+      return prev;
+    });
   };
 
   const renderSourceBadges = () => {
@@ -318,8 +359,8 @@ export default function Chat() {
                     {editingMessageId === message.id ? (
                       <div className="space-y-2">
                         <textarea
-                          value={editContent}
-                          onChange={(e) => setEditContent(e.target.value)}
+                          value={romanizedTypingEnabled ? transliterate(editRawContent) : editRawContent}
+                          onChange={(e) => handleRawChange(e, setEditRawContent)}
                           className={`w-full px-1 py-1 rounded-lg text-sm transition border-0 outline-none focus:outline-none focus:ring-0 bg-transparent ${message.role === 'user' ? 'text-white placeholder:text-primary-300' : isDark ? 'text-slate-100 placeholder:text-slate-400' : 'text-primary-800 placeholder:text-primary-400'}`}
                           rows="3"
                           autoFocus
@@ -361,10 +402,27 @@ export default function Chat() {
 
           <div className={`border-t backdrop-blur px-4 py-3 md:px-6 ${isDark ? 'border-slate-700/60 bg-slate-900/70' : 'border-white/70 bg-white/80'}`}>
           <form onSubmit={handleSendMessage} className="max-w-4xl mx-auto">
+            <div className="mb-3 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setRomanizedTypingEnabled((prev) => !prev)}
+                className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
+                  romanizedTypingEnabled
+                    ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                    : isDark
+                    ? 'border-slate-600 bg-slate-800 text-slate-200 hover:bg-slate-700'
+                    : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+                title="Romanized Nepali typing: type 'namaste' → नमस्ते"
+              >
+                <span>{romanizedTypingEnabled ? '✓' : '○'}</span>
+                <span>Romanized नेपाली typing</span>
+              </button>
+            </div>
             <div className={`relative rounded-2xl border shadow-sm ${isDark ? 'border-slate-600 bg-slate-900' : 'border-primary-300 bg-white'}`}>
               <textarea
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
+                value={romanizedTypingEnabled ? transliterate(inputRaw) : inputRaw}
+                onChange={(e) => handleRawChange(e, setInputRaw)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
@@ -382,7 +440,7 @@ export default function Chat() {
                 <DocumentUpload conversationId={activeConversation?.id} onUploadComplete={handleDocumentUploadComplete} />
               </div>
 
-              <button type="submit" disabled={loading || !inputValue.trim()} className="absolute top-1/2 -translate-y-1/2 right-3 bg-primary-900 hover:bg-primary-800 text-white p-2 rounded-xl transition disabled:opacity-30 disabled:cursor-not-allowed" title="पठाउनुहोस्">
+              <button type="submit" disabled={loading || !(romanizedTypingEnabled ? transliterate(inputRaw).trim() : inputRaw.trim())} className="absolute top-1/2 -translate-y-1/2 right-3 bg-primary-900 hover:bg-primary-800 text-white p-2 rounded-xl transition disabled:opacity-30 disabled:cursor-not-allowed" title="पठाउनुहोस्">
                 {loading ? (
                   <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>
                 ) : (
