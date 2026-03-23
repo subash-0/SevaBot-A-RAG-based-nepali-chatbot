@@ -39,8 +39,8 @@ class SevaBot_RAG_Service:
     # Collection names
     PERMANENT_COLLECTION = "sevabot_permanent_knowledge"
     USER_COLLECTION_PREFIX = "sevabot_user"
-    # EMBEDDING_MODEL_NAME = "intfloat/multilingual-e5-large"
-    EMBEDDING_MODEL_NAME = "ritesh-07/nepali-legal-e5-finetuned"
+    EMBEDDING_MODEL_NAME = "intfloat/multilingual-e5-large"
+    # EMBEDDING_MODEL_NAME = "ritesh-07/nepali-legal-e5-finetuned"
     RERANKER_MODEL_NAME = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
     
     def __init__(self):

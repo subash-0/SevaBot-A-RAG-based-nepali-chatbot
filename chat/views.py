@@ -386,13 +386,15 @@ class ConversationViewSet(viewsets.ModelViewSet):
                 'sources': {}
             }
         
-        # Build minimal source metadata: file name + source type
+        # Build detailed source metadata for frontend citation chips
         source_counts = {}
-        source_files = []
+        source_files = []  # Backwards-compatible aggregate for existing UI
+        citation_entries = []  # Rich per-chunk metadata (chapter/article/preview)
         seen_files = set()
         for i, chunk in enumerate(top_chunks):
             source = chunk.get('source', 'unknown')
             meta = chunk.get('metadata', {})
+
             file_name = (
                 meta.get('source_file')
                 or meta.get('filename')
@@ -400,6 +402,12 @@ class ConversationViewSet(viewsets.ModelViewSet):
                 or meta.get('source')
                 or 'Unknown file'
             )
+
+            chapter = meta.get('chapter') or meta.get('section')
+            dafa = meta.get('dafa') or meta.get('article') or meta.get('section_number')
+            upa_dafa = meta.get('upa_dafa') or meta.get('clause')
+            hierarchical_title = meta.get('hierarchical_title')
+            page_number = meta.get('page') or meta.get('page_start') or meta.get('page_number')
 
             source_counts[source] = source_counts.get(source, 0) + 1
 
@@ -410,6 +418,19 @@ class ConversationViewSet(viewsets.ModelViewSet):
                     'source': source,
                     'file': file_name,
                 })
+
+            citation_entries.append({
+                'id': chunk.get('id'),
+                'source': source,
+                'file': file_name,
+                'chapter': chapter,
+                'article': dafa,
+                'clause': upa_dafa,
+                'page': page_number,
+                'title': hierarchical_title,
+                'relevance_score': chunk.get('relevance_score'),
+                'preview': chunk.get('text', '')[:320]
+            })
 
             # Log detailed context for observability
             print(f"=== Chunk {i+1} [{source}] - {file_name} ===")
@@ -445,7 +466,8 @@ class ConversationViewSet(viewsets.ModelViewSet):
             return {
                 'response': response.choices[0].message.content,
                 'sources': {
-                    'files': source_files
+                    'files': source_files,
+                    'citations': citation_entries
                 }
             }
             

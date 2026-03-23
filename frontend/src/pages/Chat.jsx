@@ -21,6 +21,7 @@ export default function Chat() {
   const [lastSources, setLastSources] = useState(null);
   const [isDark, setIsDark] = useState(false);
   const [romanizedTypingEnabled, setRomanizedTypingEnabled] = useState(true);
+  const [selectedCitation, setSelectedCitation] = useState(null);
 
   const formatChatTimestamp = (isoString) => {
     if (!isoString) return '';
@@ -91,6 +92,7 @@ export default function Chat() {
       // Pick latest assistant message with sources to display chips after reload
       const lastAssistantWithSources = [...msgs].reverse().find((m) => m.role === 'assistant' && m.sources);
       setLastSources(lastAssistantWithSources?.sources || null);
+      setSelectedCitation(null);
       setSidebarOpen(false);
     } catch (error) {
       console.error('Failed to load conversation:', error);
@@ -105,6 +107,7 @@ export default function Chat() {
       setMessages([]);
       setSidebarOpen(false);
       setLastSources(null);
+      setSelectedCitation(null);
       return response.data;
     } catch (error) {
       console.error('Failed to create conversation:', error);
@@ -255,6 +258,7 @@ export default function Chat() {
         setActiveConversation(null);
         setMessages([]);
         setLastSources(null);
+        setSelectedCitation(null);
       }
     } catch (error) {
       console.error('Failed to delete conversation:', error);
@@ -313,6 +317,47 @@ export default function Chat() {
               </span>
               <span className="uppercase text-[9px] tracking-wide">{isUser ? 'USER' : 'PERM'}</span>
             </span>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderCitationChips = (sources) => {
+    const citations = sources?.citations;
+    if (!citations || !citations.length) return null;
+
+    return (
+      <div className="mt-3 flex items-center gap-2 flex-wrap">
+        {citations.map((cite) => {
+          const isUser = cite.source === 'user_document';
+          const articleLabel = [cite.article, cite.clause].filter(Boolean).join(' ');
+          const chipTitle = [cite.file, cite.chapter, articleLabel || null, cite.page ? `p.${cite.page}` : null]
+            .filter(Boolean)
+            .join(' • ');
+
+          return (
+            <button
+              type="button"
+              key={`${cite.id || cite.file}-${cite.chapter || ''}-${cite.article || ''}`}
+              onClick={() => setSelectedCitation(cite)}
+              className={`group inline-flex min-w-[180px] max-w-full items-start gap-1.5 rounded-xl border px-3 py-2 text-left transition hover:shadow ${isUser
+                ? 'border-blue-200 bg-blue-50 text-blue-800 hover:border-blue-300'
+                : 'border-primary-200 bg-primary-50 text-primary-900 hover:border-primary-300'}`}
+              title={chipTitle}
+            >
+              <div className={`mt-0.5 h-6 w-6 rounded-lg flex items-center justify-center text-[10px] font-semibold ${isUser ? 'bg-blue-100 text-blue-700' : 'bg-primary-100 text-primary-800'}`}>
+                {isUser ? 'USER' : 'PERM'}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1 text-[11px] font-semibold truncate" title={cite.file}>{cite.file}</div>
+                <div className="text-[11px] text-slate-600 truncate" title={cite.chapter || 'Chapter/Section'}>{cite.chapter || 'Chapter not captured'}</div>
+                {articleLabel && (
+                  <div className="text-[11px] font-medium text-slate-700 truncate" title={articleLabel}>{articleLabel}</div>
+                )}
+              </div>
+              {cite.page && <span className="text-[10px] font-semibold text-slate-500">p.{cite.page}</span>}
+            </button>
           );
         })}
       </div>
@@ -410,7 +455,12 @@ export default function Chat() {
                     ) : (
                       <>
                         <div className="whitespace-pre-wrap leading-relaxed text-sm np-text">{message.content}</div>
-                        {message.role === 'assistant' && renderSourceBadges(message.sources || (index === messages.length - 1 ? lastSources : null))}
+                        {message.role === 'assistant' && (
+                          <>
+                            {renderCitationChips(message.sources || (index === messages.length - 1 ? lastSources : null))}
+                            {renderSourceBadges(message.sources || (index === messages.length - 1 ? lastSources : null))}
+                          </>
+                        )}
                         <div className="flex items-center justify-between mt-3">
                           <div className={`text-[10px] ${message.role === 'user' ? 'text-primary-300' : 'text-primary-500'}`}>{formatChatTimestamp(message.created_at)}</div>
                           {message.role === 'user' && (
@@ -487,6 +537,68 @@ export default function Chat() {
           </form>
         </div>
       </div>
+
+      {selectedCitation && (
+        <div className="fixed bottom-6 right-6 z-50 max-w-md w-[360px]">
+          <div className={`rounded-2xl border shadow-xl ${isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-primary-200 text-primary-900'}`}>
+            <div className="flex items-center justify-between gap-2 border-b px-4 py-3 text-sm font-semibold">
+              <div className="truncate" title={selectedCitation.file}>{selectedCitation.file}</div>
+              <button
+                type="button"
+                onClick={() => setSelectedCitation(null)}
+                className="p-1 rounded-lg hover:bg-slate-100 text-xs"
+                title="Close"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="px-4 py-3 space-y-2 text-sm">
+              <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide font-semibold">
+                <span className={`px-2 py-0.5 rounded-full ${selectedCitation.source === 'user_document' ? 'bg-blue-100 text-blue-800' : 'bg-primary-100 text-primary-800'}`}>
+                  {selectedCitation.source === 'user_document' ? 'User document' : 'Permanent KB'}
+                </span>
+                {selectedCitation.page && <span className="text-slate-500">p.{selectedCitation.page}</span>}
+              </div>
+              <div className="space-y-1">
+                <div className="text-[12px] text-slate-600">Chapter</div>
+                <div className="text-sm font-semibold">{selectedCitation.chapter || 'Not captured'}</div>
+              </div>
+              <div className="space-y-1">
+                <div className="text-[12px] text-slate-600">Article / दफा</div>
+                <div className="text-sm font-semibold">{[selectedCitation.article, selectedCitation.clause].filter(Boolean).join(' ') || 'Not captured'}</div>
+              </div>
+              {selectedCitation.title && (
+                <div className="space-y-1">
+                  <div className="text-[12px] text-slate-600">Section</div>
+                  <div className="text-sm">{selectedCitation.title}</div>
+                </div>
+              )}
+              {selectedCitation.preview && (
+                <div className="space-y-1">
+                  <div className="text-[12px] text-slate-600">Snippet</div>
+                  <div className={`rounded-xl border px-3 py-2 text-[12px] leading-relaxed ${isDark ? 'border-slate-700 bg-slate-800 text-slate-100' : 'border-primary-100 bg-primary-50 text-primary-900'}`}>
+                    {selectedCitation.preview}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center justify-between gap-2 border-t px-4 py-3 text-xs">
+              <div className="text-slate-500 truncate">
+                {selectedCitation.relevance_score ? `Relevance: ${(selectedCitation.relevance_score * 100).toFixed(1)}%` : ''}
+              </div>
+              {selectedCitation.preview && (
+                <button
+                  type="button"
+                  onClick={() => handleCopyMessage(selectedCitation.preview)}
+                  className="px-3 py-1.5 rounded-lg bg-primary-900 text-white hover:bg-primary-800 transition"
+                >
+                  Copy snippet
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
