@@ -10,8 +10,14 @@ export default function DocumentsPanel({ conversationId }) {
   }, [conversationId]);
   
   const loadDocuments = async () => {
+    if (!conversationId) {
+      setDocuments([]);
+      setLoading(false);
+      return;
+    }
+
     try {
-      const response = await documentAPI.list();
+      const response = await documentAPI.list(conversationId);
       setDocuments(response.data);
     } catch (error) {
       console.error('Failed to load documents:', error);

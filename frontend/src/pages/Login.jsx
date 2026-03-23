@@ -41,7 +41,7 @@ export default function Login() {
       <div className="hidden lg:flex lg:w-1/2 bg-primary-900 text-white flex-col justify-center px-16">
         <div className="max-w-md">
           <div className="flex items-center gap-3 mb-8">
-            <div className="w-12 h-12 bg-accent-500 rounded-lg flex items-center justify-center">
+            <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center">
               <span className="text-2xl">⚖️</span>
             </div>
             <div>

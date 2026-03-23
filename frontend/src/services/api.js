@@ -135,7 +135,10 @@ export const conversationAPI = {
 
 // Document APIs
 export const documentAPI = {
-  list: () => api.get('/documents/'),
+  list: (conversationId = null) =>
+    api.get('/documents/', {
+      params: conversationId ? { conversation_id: conversationId } : {},
+    }),
   upload: (file, conversationId = null) => {
     const formData = new FormData();
     formData.append('file', file);

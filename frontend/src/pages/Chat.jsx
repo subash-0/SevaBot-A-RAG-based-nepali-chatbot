@@ -86,9 +86,12 @@ export default function Chat() {
     try {
       const response = await conversationAPI.get(id);
       setActiveConversation(response.data);
-      setMessages(response.data.messages || []);
+      const msgs = response.data.messages || [];
+      setMessages(msgs);
+      // Pick latest assistant message with sources to display chips after reload
+      const lastAssistantWithSources = [...msgs].reverse().find((m) => m.role === 'assistant' && m.sources);
+      setLastSources(lastAssistantWithSources?.sources || null);
       setSidebarOpen(false);
-      setLastSources(null);
     } catch (error) {
       console.error('Failed to load conversation:', error);
     }
@@ -186,6 +189,19 @@ export default function Chat() {
     const toSend = romanizedTypingEnabled ? transliterate(editRawContent).trim() : editRawContent.trim();
     if (!toSend) return;
 
+    // Optimistically update user message text and remove following assistant reply while loading
+    setMessages((prev) => {
+      const updated = [...prev];
+      const idx = updated.findIndex((m) => m.id === messageId);
+      if (idx !== -1) {
+        updated[idx] = { ...updated[idx], content: toSend };
+        if (idx + 1 < updated.length && updated[idx + 1].role === 'assistant') {
+          updated.splice(idx + 1, 1);
+        }
+      }
+      return updated;
+    });
+    setLastSources(null);
     setLoading(true);
     try {
       const response = await messageAPI.update(messageId, toSend);
@@ -275,12 +291,12 @@ export default function Chat() {
     });
   };
 
-  const renderSourceBadges = () => {
-    if (!lastSources?.files || !lastSources.files.length) return null;
+  const renderSourceBadges = (sources) => {
+    if (!sources?.files || !sources.files.length) return null;
 
     return (
       <div className="mt-3 flex items-center gap-2 flex-wrap">
-        {lastSources.files.map((fileItem, idx) => {
+        {sources.files.map((fileItem, idx) => {
           const isUser = fileItem.source === 'user_document';
           return (
             <span
@@ -322,8 +338,9 @@ export default function Chat() {
           <button onClick={() => setSidebarOpen(true)} className="md:hidden p-1.5 hover:bg-primary-100 rounded-lg transition text-primary-700">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
           </button>
-          <div className="flex-1 min-w-0">
-            <h1 className={`text-base md:text-lg font-bold tracking-tight truncate ${isDark ? 'text-slate-100' : 'text-primary-900'}`}>Nepali Legal Research Assistant</h1>
+          <div className="flex-1 min-w-0 flex items-center gap-3">
+            <h1 className={`text-base md:text-lg font-bold tracking-tight truncate ${isDark ? 'text-slate-100' : 'text-primary-900'}`}>SevaBot</h1>
+            <p className={`text-base md:text-sm  tracking-tight truncate ${isDark ? 'text-slate-100' : 'text-primary-900'}`}>RAG-Based Nepali Legal Assistant</p>
           </div>
           <button
             onClick={() => setIsDark((prev) => !prev)}
@@ -339,7 +356,7 @@ export default function Chat() {
           {messages.length === 0 ? (
             <div className="h-full flex items-center justify-center">
               <div className="w-full max-w-3xl px-4 text-center">
-                <div className="w-16 h-16 bg-primary-900 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-primary-900/20"><span className="text-3xl">⚖️</span></div>
+                <div className="w-16 h-16 bg-primary-900 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-primary-900/20"><span className="text-3xl">&#x1F64F;</span></div>
                 <h2 className="np-heading text-2xl mb-2 text-primary-900">नमस्कार!</h2>
                 <p className="text-primary-600 text-sm mb-8">तपाईंको नेपाली कानुनी सहायक — Retrieval-Augmented Generation with SBERT Reranking</p>
                 <div className="grid md:grid-cols-2 gap-4 text-left">
@@ -370,7 +387,7 @@ export default function Chat() {
                   <div className={`max-w-[90%] md:max-w-[78%] rounded-2xl px-4 py-3 md:px-5 md:py-4 shadow-sm ${message.role === 'user' ? 'bg-primary-900 text-white shadow-primary-900/20' : isDark ? 'bg-slate-900/90 border border-slate-700 text-slate-100' : 'bg-white/95 border border-primary-200 text-primary-800'}`}>
                     {message.role === 'assistant' && (
                       <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-primary-100">
-                        <div className="flex items-center gap-2"><div className="w-6 h-6 bg-primary-100 rounded-lg flex items-center justify-center"><span className="text-xs">⚖️</span></div><span className="font-semibold text-xs text-primary-700">Legal Assistant</span></div>
+                        <div className="flex items-center gap-2"><div className="w-6 h-6 bg-primary-100 rounded-lg flex items-center justify-center"><span className="text-xs">⚖️</span></div><span className="font-semibold text-xs text-primary-700">SevaBot</span></div>
                         <button onClick={() => handleCopyMessage(message.content)} className="p-1.5 hover:bg-primary-100 rounded-lg transition" title="प्रतिलिपि गर्नुहोस्"><svg className="w-3.5 h-3.5 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button>
                       </div>
                     )}
@@ -393,7 +410,7 @@ export default function Chat() {
                     ) : (
                       <>
                         <div className="whitespace-pre-wrap leading-relaxed text-sm np-text">{message.content}</div>
-                        {message.role === 'assistant' && index === messages.length - 1 && renderSourceBadges()}
+                        {message.role === 'assistant' && renderSourceBadges(message.sources || (index === messages.length - 1 ? lastSources : null))}
                         <div className="flex items-center justify-between mt-3">
                           <div className={`text-[10px] ${message.role === 'user' ? 'text-primary-300' : 'text-primary-500'}`}>{formatChatTimestamp(message.created_at)}</div>
                           {message.role === 'user' && (

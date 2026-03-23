@@ -128,8 +128,7 @@ class SevaBot_RAG_Service:
         try:
             # 1. Chunk the document
             chunks = self.nepali_chunker.process_pdf_for_rag(
-                pdf_path=pdf_path,
-                max_chunk_tokens=800
+                pdf_path=pdf_path
             )
             
             logger.info(f"Generated {len(chunks)} chunks")
@@ -263,6 +262,7 @@ class SevaBot_RAG_Service:
                     "type": "user_uploaded",
                     "user_id": str(user_id),
                     "document_id": str(document_id),
+                    "source_file": document_metadata.get('filename'),
                     **document_metadata
                 }
             )
@@ -274,7 +274,8 @@ class SevaBot_RAG_Service:
                 {
                     **chunk['metadata'],
                     'chunk_index': i,
-                    'collection_type': 'user'
+                    'collection_type': 'user',
+                    'source_file': document_metadata.get('filename')
                 }
                 for i, chunk in enumerate(chunks)
             ]

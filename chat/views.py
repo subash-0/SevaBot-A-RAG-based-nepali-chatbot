@@ -93,7 +93,11 @@ class DocumentViewSet(viewsets.ModelViewSet):
     parser_classes = (MultiPartParser, FormParser)
     
     def get_queryset(self):
-        return Document.objects.filter(user=self.request.user)
+        qs = Document.objects.filter(user=self.request.user)
+        conversation_id = self.request.query_params.get('conversation_id')
+        if conversation_id:
+            qs = qs.filter(conversation_id=conversation_id)
+        return qs
     
     def create(self, request, *args, **kwargs):
         """
@@ -101,6 +105,19 @@ class DocumentViewSet(viewsets.ModelViewSet):
         """
         file = request.FILES.get('file')
         conversation_id = request.data.get('conversation_id')
+
+        if not conversation_id:
+            return Response(
+                {'error': 'conversation_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        try:
+            conversation = Conversation.objects.get(id=conversation_id, user=request.user)
+        except Conversation.DoesNotExist:
+            return Response(
+                {'error': 'Invalid conversation'},
+                status=status.HTTP_404_NOT_FOUND
+            )
         
         if not file:
             return Response(
@@ -118,7 +135,7 @@ class DocumentViewSet(viewsets.ModelViewSet):
         # Create document record
         document = Document.objects.create(
             user=request.user,
-            conversation_id=conversation_id if conversation_id else None,
+            conversation=conversation,
             file=file,
             filename=file.name,
             status='pending'
@@ -183,6 +200,23 @@ class DocumentViewSet(viewsets.ModelViewSet):
                 document.save()
             except:
                 pass
+
+    def destroy(self, request, *args, **kwargs):
+        """Delete document record and drop its Chroma collection if it exists."""
+        document = self.get_object()
+        collection_name = document.collection_id
+
+        response = super().destroy(request, *args, **kwargs)
+
+        if collection_name:
+            try:
+                rag_service = NepaliRAGService()
+                rag_service.chroma_client.delete_collection(name=collection_name)
+                logger.info(f"Deleted Chroma collection for document {document.id}: {collection_name}")
+            except Exception as e:
+                logger.warning(f"Failed to delete Chroma collection {collection_name} for document {document.id}: {e}")
+
+        return response
 
 class ConversationViewSet(viewsets.ModelViewSet):
     """
@@ -274,7 +308,8 @@ class ConversationViewSet(viewsets.ModelViewSet):
         assistant_message = Message.objects.create(
             conversation=conversation,
             role='assistant',
-            content=assistant_response
+            content=assistant_response,
+            sources=sources
         )
         
         # Update conversation timestamp
@@ -303,31 +338,16 @@ class ConversationViewSet(viewsets.ModelViewSet):
         # Initialize RAG service
         rag_service = NepaliRAGService()
         
-        # Get user's documents
-        documents = Document.objects.filter(
-            user=self.request.user,
-            status='completed'
-        )
-        
-        # Check if conversation has specific documents
-        if conversation.documents.filter(status='completed').exists():
-            documents = conversation.documents.filter(status='completed')
+        # Only use documents attached to this conversation (per-chat isolation)
+        documents = conversation.documents.filter(status='completed')
         
         # Decide retrieval strategy
         all_context_chunks = []
         
-        # 1. Retrieve from User Documents if requested
+        # 1. Retrieve from User Documents if requested (only current conversation)
         if search_source in ['user', 'all']:
-             documents = conversation.documents.filter(status='completed')
-             if not documents.exists():
-                 # Fallback to general user documents if not specific to conversation
-                 documents = Document.objects.filter(
-                    user=self.request.user,
-                    status='completed'
-                )
-             
-             if documents.exists():
-                logger.info(f"Retrieving from {documents.count()} user documents")
+            if documents.exists():
+                logger.info(f"Retrieving from {documents.count()} conversation-specific user documents")
                 for doc in documents:
                     if doc.collection_id:
                         chunks = rag_service.retrieve_context(
@@ -337,8 +357,8 @@ class ConversationViewSet(viewsets.ModelViewSet):
                             use_permanent_kb=False
                         )
                         all_context_chunks.extend(chunks)
-             else:
-                 logger.warning("User search requested but no documents found")
+            else:
+                logger.warning("User search requested but no documents found for this conversation")
         
         # 2. Retrieve from Permanent KB if requested
         if search_source in ['permanent', 'all']:
@@ -373,7 +393,13 @@ class ConversationViewSet(viewsets.ModelViewSet):
         for i, chunk in enumerate(top_chunks):
             source = chunk.get('source', 'unknown')
             meta = chunk.get('metadata', {})
-            file_name = meta.get('source_file') or meta.get('filename') or meta.get('original_filename') or 'Unknown file'
+            file_name = (
+                meta.get('source_file')
+                or meta.get('filename')
+                or meta.get('original_filename')
+                or meta.get('source')
+                or 'Unknown file'
+            )
 
             source_counts[source] = source_counts.get(source, 0) + 1
 
@@ -511,7 +537,8 @@ class MessageViewSet(viewsets.ModelViewSet):
             assistant_message = Message.objects.create(
                 conversation=message.conversation,
                 role='assistant',
-                content=assistant_content
+                content=assistant_content,
+                sources=sources_payload
             )
             
             return Response({

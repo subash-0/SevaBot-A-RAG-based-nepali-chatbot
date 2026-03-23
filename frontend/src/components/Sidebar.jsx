@@ -40,12 +40,12 @@ export default function Sidebar({
         <div className="p-4 border-b border-primary-800/80 flex-shrink-0">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 bg-primary-700 rounded-xl flex items-center justify-center shadow-lg shadow-black/30">
-                <span className="text-sm text-white">⚖️</span>
+              <div className="w-9 h-9 bg-white rounded-xl flex items-center justify-center shadow-lg shadow-black/30">
+                <span className="text-sm ">⚖️</span>
               </div>
               <div>
                 <h2 className="text-base font-bold text-white tracking-tight">Workspace</h2>
-                <p className="text-[10px] text-primary-200 leading-tight">Legal Chat + Documents</p>
+                <p className="text-[10px] text-primary-200 leading-tight">Chat + Documents</p>
               </div>
             </div>
             <button
