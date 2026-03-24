@@ -16,6 +16,7 @@ import {
 import Icon from 'react-native-vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {authAPI} from '../services/api';
+import {useTheme} from '../context/ThemeContext';
 
 export default function SignupScreen({navigation}: any) {
   const [username, setUsername] = useState('');
@@ -24,6 +25,7 @@ export default function SignupScreen({navigation}: any) {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const { isDark } = useTheme();
 
   const handleSignup = async () => {
     if (!username.trim() || !email.trim() || !password.trim()) {
@@ -64,9 +66,12 @@ export default function SignupScreen({navigation}: any) {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[styles.container, isDark && styles.containerDark]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <StatusBar barStyle="light-content" backgroundColor="#6d28d9" />
+      <StatusBar 
+        barStyle="light-content" 
+        backgroundColor={isDark ? '#020617' : '#6d28d9'} 
+      />
       <ScrollView
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled">
@@ -78,78 +83,78 @@ export default function SignupScreen({navigation}: any) {
             resizeMode="contain"
           />
           <Text style={styles.brand}>SevaBot</Text>
-          <Text style={styles.tagline}>नयाँ खाता बनाउनुहोस्</Text>
+          <Text style={[styles.tagline, isDark && styles.taglineDark]}>नयाँ खाता बनाउनुहोस्</Text>
         </View>
 
         {/* Card */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>दर्ता गर्नुहोस्</Text>
-          <Text style={styles.cardSubtitle}>
+        <View style={[styles.card, isDark && styles.cardDark]}>
+          <Text style={[styles.cardTitle, isDark && styles.cardTitleDark]}>दर्ता गर्नुहोस्</Text>
+          <Text style={[styles.cardSubtitle, isDark && styles.cardSubtitleDark]}>
             नयाँ खाता बनाएर सुरु गर्नुहोस्
           </Text>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Username</Text>
-            <View style={styles.inputWrapper}>
-              <Icon name="person-outline" size={18} color="#9ca3af" style={{marginRight: 8}} />
+            <Text style={[styles.label, isDark && styles.labelDark]}>Username</Text>
+            <View style={[styles.inputWrapper, isDark && styles.inputWrapperDark]}>
+              <Icon name="person-outline" size={18} color={isDark ? "#64748b" : "#9ca3af"} style={{marginRight: 8}} />
               <TextInput
-                style={styles.input}
+                style={[styles.input, isDark && styles.inputDark]}
                 value={username}
                 onChangeText={setUsername}
                 placeholder="username छान्नुहोस्"
-                placeholderTextColor="#9ca3af"
+                placeholderTextColor={isDark ? "#4b5563" : "#9ca3af"}
                 autoCapitalize="none"
                 autoCorrect={false}
               />
             </View>
           </View>
-
+ 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Email</Text>
-            <View style={styles.inputWrapper}>
-              <Icon name="mail-outline" size={18} color="#9ca3af" style={{marginRight: 8}} />
+            <Text style={[styles.label, isDark && styles.labelDark]}>Email</Text>
+            <View style={[styles.inputWrapper, isDark && styles.inputWrapperDark]}>
+              <Icon name="mail-outline" size={18} color={isDark ? "#64748b" : "#9ca3af"} style={{marginRight: 8}} />
               <TextInput
-                style={styles.input}
+                style={[styles.input, isDark && styles.inputDark]}
                 value={email}
                 onChangeText={setEmail}
                 placeholder="email लेख्नुहोस्"
-                placeholderTextColor="#9ca3af"
+                placeholderTextColor={isDark ? "#4b5563" : "#9ca3af"}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
               />
             </View>
           </View>
-
+ 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Password</Text>
-            <View style={styles.inputWrapper}>
-              <Icon name="lock-closed-outline" size={18} color="#9ca3af" style={{marginRight: 8}} />
+            <Text style={[styles.label, isDark && styles.labelDark]}>Password</Text>
+            <View style={[styles.inputWrapper, isDark && styles.inputWrapperDark]}>
+              <Icon name="lock-closed-outline" size={18} color={isDark ? "#64748b" : "#9ca3af"} style={{marginRight: 8}} />
               <TextInput
-                style={[styles.input, {flex: 1}]}
+                style={[styles.input, isDark && styles.inputDark, {flex: 1}]}
                 value={password}
                 onChangeText={setPassword}
                 placeholder="password लेख्नुहोस्"
-                placeholderTextColor="#9ca3af"
+                placeholderTextColor={isDark ? "#4b5563" : "#9ca3af"}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
               />
               <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-                <Icon name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#9ca3af" />
+                <Icon name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color={isDark ? "#64748b" : "#9ca3af"} />
               </TouchableOpacity>
             </View>
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Password पुष्टि गर्नुहोस्</Text>
-            <View style={styles.inputWrapper}>
-              <Icon name="shield-checkmark-outline" size={18} color="#9ca3af" style={{marginRight: 8}} />
+            <Text style={[styles.label, isDark && styles.labelDark]}>Password पुष्टि गर्नुहोस्</Text>
+            <View style={[styles.inputWrapper, isDark && styles.inputWrapperDark]}>
+              <Icon name="shield-checkmark-outline" size={18} color={isDark ? "#64748b" : "#9ca3af"} style={{marginRight: 8}} />
               <TextInput
-                style={styles.input}
+                style={[styles.input, isDark && styles.inputDark]}
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 placeholder="password पुन: लेख्नुहोस्"
-                placeholderTextColor="#9ca3af"
+                placeholderTextColor={isDark ? "#4b5563" : "#9ca3af"}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
               />
@@ -168,7 +173,7 @@ export default function SignupScreen({navigation}: any) {
           </TouchableOpacity>
 
           <View style={styles.loginRow}>
-            <Text style={styles.loginText}>पहिले नै खाता छ? </Text>
+            <Text style={[styles.loginText, isDark && styles.loginTextDark]}>पहिले नै खाता छ? </Text>
             <TouchableOpacity onPress={() => navigation.navigate('Login')}>
               <Text style={styles.loginLink}>लगइन गर्नुहोस्</Text>
             </TouchableOpacity>
@@ -183,6 +188,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#6d28d9',
+  },
+  containerDark: {
+    backgroundColor: '#020617',
   },
   scroll: {
     flexGrow: 1,
@@ -209,6 +217,9 @@ const styles = StyleSheet.create({
     color: '#ddd6fe',
     marginTop: 4,
   },
+  taglineDark: {
+    color: '#94a3b8',
+  },
   card: {
     backgroundColor: '#ffffff',
     borderRadius: 24,
@@ -219,16 +230,29 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 10,
   },
+  cardDark: {
+    backgroundColor: '#0f172a',
+    borderWidth: 1,
+    borderColor: '#1e293b',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
   cardTitle: {
     fontSize: 24,
     fontWeight: '700',
     color: '#111827',
     marginBottom: 4,
   },
+  cardTitleDark: {
+    color: '#f1f5f9',
+  },
   cardSubtitle: {
     fontSize: 14,
     color: '#6b7280',
     marginBottom: 24,
+  },
+  cardSubtitleDark: {
+    color: '#94a3b8',
   },
   inputGroup: {
     marginBottom: 14,
@@ -239,6 +263,9 @@ const styles = StyleSheet.create({
     color: '#374151',
     marginBottom: 6,
   },
+  labelDark: {
+    color: '#94a3b8',
+  },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -247,6 +274,10 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingHorizontal: 14,
     backgroundColor: '#f9fafb',
+  },
+  inputWrapperDark: {
+    backgroundColor: '#020617',
+    borderColor: '#1e293b',
   },
   inputIcon: {
     fontSize: 18,
@@ -257,6 +288,9 @@ const styles = StyleSheet.create({
     height: 50,
     fontSize: 15,
     color: '#111827',
+  },
+  inputDark: {
+    color: '#f1f5f9',
   },
   eyeIcon: {
     fontSize: 18,
@@ -291,6 +325,9 @@ const styles = StyleSheet.create({
   loginText: {
     fontSize: 14,
     color: '#6b7280',
+  },
+  loginTextDark: {
+    color: '#64748b',
   },
   loginLink: {
     fontSize: 14,

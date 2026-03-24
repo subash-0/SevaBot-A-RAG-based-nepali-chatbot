@@ -131,7 +131,13 @@ export default function OnboardingScreen({ navigation }: any) {
     const ip = serverIP.trim() || DEFAULT_SERVER_IP;
     await AsyncStorage.setItem(STORAGE_KEYS.SERVER_IP, ip);
     await AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING_DONE, 'true');
-    navigation.replace('Login');
+
+    const token = await AsyncStorage.getItem(STORAGE_KEYS.TOKEN);
+    if (token) {
+      navigation.replace('Chat');
+    } else {
+      navigation.replace('Login');
+    }
   };
 
   const renderSlide = ({ item, index }: { item: Slide; index: number }) => (

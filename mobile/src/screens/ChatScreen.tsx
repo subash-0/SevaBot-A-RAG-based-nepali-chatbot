@@ -39,6 +39,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Voice from '@react-native-voice/voice';
 import Tts from 'react-native-tts';
 import { conversationAPI, authAPI, STORAGE_KEYS } from '../services/api';
+import { useTheme } from '../context/ThemeContext';
 
 interface Message {
   id: number;
@@ -66,11 +67,20 @@ export default function ChatScreen({ navigation }: any) {
   const [user, setUser] = useState<any>(null);
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState('');
+  const { isDark } = useTheme();
   const flatListRef = useRef<FlatList>(null);
 
   const [isListening, setIsListening] = useState(false);
   const [speechResult, setSpeechResult] = useState('');
   const [isSpeaking, setIsSpeaking] = useState<number | null>(null);
+
+  // Hands-free Mode State
+  const [isHandsFree, setIsHandsFree] = useState(false);
+  const isHandsFreeRef = useRef(false);
+
+  useEffect(() => {
+    isHandsFreeRef.current = isHandsFree;
+  }, [isHandsFree]);
 
   useEffect(() => {
     loadUser();
@@ -94,9 +104,19 @@ export default function ChatScreen({ navigation }: any) {
         Tts.addEventListener('tts-start', (event: any) =>
           setIsSpeaking(Number(event.requestId)),
         );
-        Tts.addEventListener('tts-finish', () => setIsSpeaking(null));
+        Tts.addEventListener('tts-finish', () => {
+          setIsSpeaking(null);
+          // If in hands-free mode, start listening again after bot stops speaking
+          if (isHandsFreeRef.current) {
+            setTimeout(() => {
+              startListening();
+            }, 500);
+          }
+        });
         Tts.addEventListener('tts-cancel', () => setIsSpeaking(null));
-        Tts.addEventListener('tts-error', () => setIsSpeaking(null));
+        Tts.addEventListener('tts-error', () => {
+          setIsSpeaking(null);
+        });
       } catch (e) {
         console.warn('TTS initialization failed:', e);
       }
@@ -117,7 +137,17 @@ export default function ChatScreen({ navigation }: any) {
   };
 
   const onSpeechError = (e: any) => {
-    console.error('Speech error:', e);
+    console.log('Voice Error:', e);
+    // Common error codes:
+    // 7: No match (didn't hear anything)
+    // 5: Client error (often permissions or google app issues)
+    // 2: Network error
+    if (e.error?.code !== '7') {
+      Alert.alert(
+        'भ्वाइस एरर',
+        `स्वर चिन्न सकेन (Error: ${e.error?.code || 'unknown'})`,
+      );
+    }
     setIsListening(false);
   };
   const requestMicPermission = async () => {
@@ -127,7 +157,8 @@ export default function ChatScreen({ navigation }: any) {
           PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
           {
             title: 'माइक्रोफोन अनुमति',
-            message: 'SevaBot लाई तपाईंको स्वर बुझ्न माइक्रोफोन अनुमति आवश्यक छ।',
+            message:
+              'SevaBot लाई तपाईंको स्वर बुझ्न माइक्रोफोन अनुमति आवश्यक छ।',
             buttonNeutral: 'पछि सोध्नुहोस्',
             buttonNegative: 'रद्द',
             buttonPositive: 'ठिक छ',
@@ -145,10 +176,27 @@ export default function ChatScreen({ navigation }: any) {
   const startListening = async () => {
     if (!Voice) return;
 
+    // Check availability
+    try {
+      const available = await Voice.isAvailable();
+      if (!available) {
+        Alert.alert(
+          'हुनेछैन',
+          'तपाईंको उपकरणमा स्वर चिन्न सक्ने सुविधा उपलब्ध छैन।',
+        );
+        return;
+      }
+    } catch (e) {
+      console.log('Voice.isAvailable error:', e);
+    }
+
     // Check permission first
     const hasPermission = await requestMicPermission();
     if (!hasPermission) {
-      Alert.alert('अनुमति आवश्यक', 'भ्वाइस फिचर प्रयोग गर्न माइक्रोफोन अनुमति आवश्यक छ।');
+      Alert.alert(
+        'अनुमति आवश्यक',
+        'भ्वाइस फिचर प्रयोग गर्न माइक्रोफोन अनुमति आवश्यक छ।',
+      );
       return;
     }
 
@@ -159,12 +207,19 @@ export default function ChatScreen({ navigation }: any) {
       }
 
       setInputValue('');
+      console.log('Starting Voice recognition for ne-NP');
       await Voice.start('ne-NP');
     } catch (e: any) {
-      console.error('Start listening error:', e);
+      console.log('Voice.start error:', e);
       // Sometimes it's already started
       if (e.error === 'speech_recognizer_busy') {
         await Voice.stop();
+        setTimeout(() => Voice.start('ne-NP'), 100);
+      } else {
+        Alert.alert(
+          'त्रुटि',
+          `माइक्रोफोन सुरु गर्न सकेन: ${e.message || 'Unknown error'}`,
+        );
       }
     }
   };
@@ -282,11 +337,23 @@ export default function ChatScreen({ navigation }: any) {
       );
       setMessages(prev => {
         const withoutTemp = prev.filter(m => m.id !== tempMsg.id);
-        return [
+        const newMessages = [
           ...withoutTemp,
           response.data.user_message,
           response.data.assistant_message,
         ];
+
+        // If in hands-free mode, automatically speak the bot's response
+        if (isHandsFreeRef.current) {
+          setTimeout(() => {
+            speak(
+              response.data.assistant_message.content,
+              response.data.assistant_message.id,
+            );
+          }, 500);
+        }
+
+        return newMessages;
       });
 
       if (messages.length === 0) {
@@ -395,30 +462,46 @@ export default function ChatScreen({ navigation }: any) {
         <View
           style={[
             styles.bubble,
-            isUser ? styles.userBubble : styles.assistantBubble,
+            isUser
+              ? styles.userBubble
+              : [styles.assistantBubble, isDark && styles.assistantBubbleDark],
           ]}
         >
-          {!isUser && <Text style={styles.botLabel}>SevaBot</Text>}
+          {!isUser && (
+            <Text style={[styles.botLabel, isDark && styles.botLabelDark]}>
+              SevaBot
+            </Text>
+          )}
           {isEditing ? (
             <View style={styles.editContainer}>
               <TextInput
-                style={styles.editInput}
+                style={[styles.editInput, isDark && styles.editInputDark]}
                 value={editContent}
                 onChangeText={setEditContent}
                 multiline
                 autoFocus
                 placeholder="सन्देश सम्पादन गर्नुहोस्..."
-                placeholderTextColor="#9ca3af"
+                placeholderTextColor={isDark ? '#4b5563' : '#9ca3af'}
               />
               <View style={styles.editActions}>
                 <TouchableOpacity
-                  style={styles.cancelEditBtn}
+                  style={[
+                    styles.cancelEditBtn,
+                    isDark && styles.cancelEditBtnDark,
+                  ]}
                   onPress={() => {
                     setEditingMessageId(null);
                     setEditContent('');
                   }}
                 >
-                  <Text style={styles.cancelEditText}>रद्द</Text>
+                  <Text
+                    style={[
+                      styles.cancelEditText,
+                      isDark && styles.cancelEditTextDark,
+                    ]}
+                  >
+                    रद्द
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.saveEditBtn}
@@ -433,14 +516,25 @@ export default function ChatScreen({ navigation }: any) {
             </View>
           ) : (
             <>
-              <Text style={[styles.messageText, isUser && styles.userText]}>
+              <Text
+                style={[
+                  styles.messageText,
+                  isDark && styles.messageTextDark,
+                  isUser && styles.userText,
+                ]}
+              >
                 {message.content}
               </Text>
               <View style={styles.messageFooter}>
                 <Text
                   style={[
                     styles.timestamp,
-                    isUser ? styles.userTimestamp : styles.assistantTimestamp,
+                    isUser
+                      ? styles.userTimestamp
+                      : [
+                          styles.assistantTimestamp,
+                          isDark && styles.assistantTimestampDark,
+                        ],
                   ]}
                 >
                   {new Date(message.created_at).toLocaleTimeString('ne-NP', {
@@ -454,7 +548,7 @@ export default function ChatScreen({ navigation }: any) {
                     style={styles.editBtn}
                     onPress={() => handleStartEdit(message)}
                   >
-                    <Edit2 size={18} color="#9ca3af" />
+                    <Edit2 size={18} color={isDark ? '#64748b' : '#9ca3af'} />
                   </TouchableOpacity>
                 )}
 
@@ -464,9 +558,15 @@ export default function ChatScreen({ navigation }: any) {
                     onPress={() => speak(message.content, message.id)}
                   >
                     {isSpeaking === message.id ? (
-                      <StopCircle size={20} color="#2563eb" />
+                      <StopCircle
+                        size={20}
+                        color={isDark ? '#60a5fa' : '#2563eb'}
+                      />
                     ) : (
-                      <Volume2 size={20} color="#2563eb" />
+                      <Volume2
+                        size={20}
+                        color={isDark ? '#60a5fa' : '#2563eb'}
+                      />
                     )}
                   </TouchableOpacity>
                 )}
@@ -521,11 +621,14 @@ export default function ChatScreen({ navigation }: any) {
   );
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#1d4ed8" />
+    <View style={[styles.container, isDark && styles.containerDark]}>
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor={isDark ? '#020617' : '#1d4ed8'}
+      />
 
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, isDark && styles.headerDark]}>
         <TouchableOpacity
           style={styles.menuBtn}
           onPress={() => setSidebarVisible(true)}
@@ -541,10 +644,14 @@ export default function ChatScreen({ navigation }: any) {
             />
             <Text style={styles.headerTitle}>SevaBot</Text>
           </View>
-          <Text style={styles.headerSubtitle}>
-            डिजिटल नागरिक बडापत्र | RAG System
-          </Text>
+          <Text style={styles.headerSubtitle}>डिजिटल नागरिक बडापत्र</Text>
         </View>
+        <TouchableOpacity
+          style={[styles.menuBtn, isHandsFree && styles.handsFreeBtnActive]}
+          onPress={() => setIsHandsFree(!isHandsFree)}
+        >
+          <Volume2 size={24} color={isHandsFree ? '#4ade80' : '#ffffff'} />
+        </TouchableOpacity>
         <TouchableOpacity
           style={styles.menuBtn}
           onPress={() => navigation.navigate('Settings')}
@@ -577,22 +684,30 @@ export default function ChatScreen({ navigation }: any) {
         {/* Loading indicator */}
         {loading && (
           <View style={styles.loadingRow}>
-            <View style={styles.loadingBubble}>
+            <View
+              style={[styles.loadingBubble, isDark && styles.loadingBubbleDark]}
+            >
               <ActivityIndicator size="small" color="#2563eb" />
-              <Text style={styles.loadingText}>SevaBot सोच्दैछ...</Text>
+              <Text
+                style={[styles.loadingText, isDark && styles.loadingTextDark]}
+              >
+                SevaBot सोच्दैछ...
+              </Text>
             </View>
           </View>
         )}
 
         {/* Input Box */}
-        <View style={styles.inputArea}>
-          <View style={styles.inputContainer}>
+        <View style={[styles.inputArea, isDark && styles.inputAreaDark]}>
+          <View
+            style={[styles.inputContainer, isDark && styles.inputContainerDark]}
+          >
             <TextInput
-              style={styles.textInput}
+              style={[styles.textInput, isDark && styles.textInputDark]}
               value={inputValue}
               onChangeText={setInputValue}
               placeholder="आफ्नो प्रश्न नेपालीमा सोध्नुहोस्..."
-              placeholderTextColor="#9ca3af"
+              placeholderTextColor={isDark ? '#4b5563' : '#9ca3af'}
               multiline
               maxLength={2000}
               editable={!loading}
@@ -638,7 +753,7 @@ export default function ChatScreen({ navigation }: any) {
             style={styles.modalBackdrop}
             onPress={() => setSidebarVisible(false)}
           />
-          <View style={styles.sidebar}>
+          <View style={[styles.sidebar, isDark && styles.sidebarDark]}>
             {/* Sidebar Header */}
             <View style={styles.sidebarHeader}>
               <View style={styles.sidebarTitleRow}>
@@ -654,10 +769,21 @@ export default function ChatScreen({ navigation }: any) {
               </Text>
             </View>
 
-            {/* New Chat Button */}
             <TouchableOpacity style={styles.newChatBtn} onPress={startNewChat}>
               <PlusCircle size={20} color="#e0e7ff" />
               <Text style={styles.newChatText}>नयाँ कुराकानी</Text>
+            </TouchableOpacity>
+
+            {/* Profile Button */}
+            <TouchableOpacity
+              style={styles.newChatBtn}
+              onPress={() => {
+                setSidebarVisible(false);
+                navigation.navigate('Profile');
+              }}
+            >
+              <User size={20} color="#e0e7ff" />
+              <Text style={styles.newChatText}>प्रोफाइल</Text>
             </TouchableOpacity>
 
             {/* Settings Button */}
@@ -740,6 +866,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f8fafc',
   },
+  containerDark: {
+    backgroundColor: '#020617',
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -752,6 +881,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
+  },
+  headerDark: {
+    backgroundColor: '#0f172a',
+    borderBottomWidth: 1,
+    borderBottomColor: '#1e293b',
   },
   menuBtn: {
     width: 40,
@@ -787,6 +921,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#bfdbfe',
     marginTop: 1,
+    marginLeft: 10,
   },
   messageList: {
     padding: 16,
@@ -837,16 +972,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e5e7eb',
   },
+  assistantBubbleDark: {
+    backgroundColor: '#0f172a',
+    borderColor: '#1e293b',
+  },
   botLabel: {
     fontSize: 11,
     fontWeight: '700',
     color: '#2563eb',
     marginBottom: 4,
   },
+  botLabelDark: {
+    color: '#60a5fa',
+  },
   messageText: {
     fontSize: 15,
     color: '#1f2937',
     lineHeight: 22,
+  },
+  messageTextDark: {
+    color: '#f1f5f9',
   },
   userText: {
     color: '#ffffff',
@@ -865,6 +1010,9 @@ const styles = StyleSheet.create({
   },
   assistantTimestamp: {
     color: '#9ca3af',
+  },
+  assistantTimestampDark: {
+    color: '#64748b',
   },
   editBtn: {
     padding: 2,
@@ -886,6 +1034,11 @@ const styles = StyleSheet.create({
     minHeight: 80,
     textAlignVertical: 'top',
   },
+  editInputDark: {
+    backgroundColor: '#020617',
+    borderColor: '#2563eb',
+    color: '#f1f5f9',
+  },
   editActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
@@ -900,10 +1053,17 @@ const styles = StyleSheet.create({
     borderColor: '#d1d5db',
     backgroundColor: '#fff',
   },
+  cancelEditBtnDark: {
+    backgroundColor: '#1e293b',
+    borderColor: '#334155',
+  },
   cancelEditText: {
     fontSize: 13,
     color: '#374151',
     fontWeight: '600',
+  },
+  cancelEditTextDark: {
+    color: '#94a3b8',
   },
   saveEditBtn: {
     paddingHorizontal: 14,
@@ -937,10 +1097,18 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 2,
   },
+  loadingBubbleDark: {
+    backgroundColor: '#0f172a',
+    borderColor: '#1e293b',
+    shadowOpacity: 0,
+  },
   loadingText: {
     fontSize: 13,
     color: '#6b7280',
     fontStyle: 'italic',
+  },
+  loadingTextDark: {
+    color: '#94a3b8',
   },
   inputArea: {
     backgroundColor: '#ffffff',
@@ -948,6 +1116,10 @@ const styles = StyleSheet.create({
     borderTopColor: '#e5e7eb',
     paddingHorizontal: 16,
     paddingVertical: 12,
+  },
+  inputAreaDark: {
+    backgroundColor: '#020617',
+    borderTopColor: '#1e293b',
   },
   inputContainer: {
     flexDirection: 'row',
@@ -960,6 +1132,10 @@ const styles = StyleSheet.create({
     paddingRight: 6,
     paddingVertical: 6,
   },
+  inputContainerDark: {
+    backgroundColor: '#0f172a',
+    borderColor: '#1e293b',
+  },
   textInput: {
     flex: 1,
     fontSize: 15,
@@ -968,6 +1144,9 @@ const styles = StyleSheet.create({
     paddingTop: 6,
     paddingBottom: 6,
     lineHeight: 22,
+  },
+  textInputDark: {
+    color: '#f1f5f9',
   },
   sendBtn: {
     width: 40,
@@ -1072,6 +1251,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#1e1b4b',
     paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 44,
     paddingBottom: 32,
+  },
+  handsFreeBtnActive: {
+    backgroundColor: 'rgba(74, 222, 128, 0.2)',
+    borderRadius: 12,
+  },
+  sidebarDark: {
+    backgroundColor: '#020617',
+    borderRightWidth: 1,
+    borderRightColor: '#1e293b',
   },
   sidebarHeader: {
     paddingHorizontal: 20,

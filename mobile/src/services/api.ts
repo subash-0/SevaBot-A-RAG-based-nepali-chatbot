@@ -7,6 +7,8 @@ export const STORAGE_KEYS = {
   USER: 'user',
   SERVER_IP: 'server_ip',
   ONBOARDING_DONE: 'onboarding_done',
+  THEME: 'theme',
+  USE_CUSTOM_URL: 'use_custom_url',
 };
 
 /** Default fallback — Android emulator localhost */
@@ -22,9 +24,14 @@ export async function getServerIP(): Promise<string> {
   }
 }
 
-/** Build the full base URL from a host:port string */
-export function buildBaseURL(hostPort: string): string {
-  const cleaned = hostPort.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+/** Build the full base URL from a string (IP:Port or full URL) */
+export function buildBaseURL(address: string): string {
+  const cleaned = address.trim().replace(/\/+$/, '');
+  if (!cleaned) return 'http://10.0.2.2:8000/api';
+  
+  if (cleaned.startsWith('http://') || cleaned.startsWith('https://')) {
+    return `${cleaned}/api`;
+  }
   return `http://${cleaned}/api`;
 }
 
@@ -69,6 +76,11 @@ export const authAPI = {
   login: (data: {username: string; password: string}) =>
     api.post('/auth/login/', data),
   logout: () => api.post('/auth/logout/'),
+  getProfile: () => api.get('/auth/profile/'),
+  updateProfile: (data: {username?: string; email?: string; llm_api_key?: string}) =>
+    api.patch('/auth/profile/', data),
+  changePassword: (data: {old_password: string; new_password: string}) =>
+    api.post('/auth/change-password/', data),
 };
 
 // ─── Conversations ─────────────────────────────────────────────────────────

@@ -10,7 +10,10 @@ import LoginScreen from './src/screens/LoginScreen';
 import SignupScreen from './src/screens/SignupScreen';
 import ChatScreen from './src/screens/ChatScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import ProfileScreen from './src/screens/ProfileScreen';
 import {STORAGE_KEYS} from './src/services/api';
+import {ThemeProvider, useTheme} from './src/context/ThemeContext';
+import {DefaultTheme, DarkTheme} from '@react-navigation/native';
 
 const Stack = createNativeStackNavigator();
 
@@ -64,31 +67,46 @@ export default function App() {
   }
 
   return (
-    <SafeAreaProvider>
-      <NavigationContainer>
-        <Stack.Navigator
-          initialRouteName={initialRoute}
-          screenOptions={{headerShown: false, animation: 'slide_from_right'}}>
-          <Stack.Screen
-            name="Onboarding"
-            component={OnboardingScreen}
-            options={{animation: 'fade'}}
-          />
-          <Stack.Screen name="Login" component={LoginScreen} />
-          <Stack.Screen name="Signup" component={SignupScreen} />
-          <Stack.Screen
-            name="Chat"
-            component={ChatScreen}
-            options={{animation: 'fade'}}
-          />
-          <Stack.Screen
-            name="Settings"
-            component={SettingsScreen}
-            options={{animation: 'slide_from_bottom'}}
-          />
-        </Stack.Navigator>
-      </NavigationContainer>
-    </SafeAreaProvider>
+    <ThemeProvider>
+      <SafeAreaProvider>
+        <RootNavigator initialRoute={initialRoute} />
+      </SafeAreaProvider>
+    </ThemeProvider>
+  );
+}
+
+function RootNavigator({ initialRoute }: { initialRoute: string }) {
+  const { isDark } = useTheme();
+
+  return (
+    <NavigationContainer theme={isDark ? DarkTheme : DefaultTheme}>
+      <Stack.Navigator
+        initialRouteName={initialRoute}
+        screenOptions={{headerShown: false, animation: 'slide_from_right'}}>
+        <Stack.Screen
+          name="Onboarding"
+          component={OnboardingScreen}
+          options={{animation: 'fade'}}
+        />
+        <Stack.Screen name="Login" component={LoginScreen} />
+        <Stack.Screen name="Signup" component={SignupScreen} />
+        <Stack.Screen
+          name="Chat"
+          component={ChatScreen}
+          options={{animation: 'fade'}}
+        />
+        <Stack.Screen
+          name="Settings"
+          component={SettingsScreen}
+          options={{animation: 'slide_from_bottom'}}
+        />
+        <Stack.Screen
+          name="Profile"
+          component={ProfileScreen}
+          options={{animation: 'slide_from_right'}}
+        />
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }
 

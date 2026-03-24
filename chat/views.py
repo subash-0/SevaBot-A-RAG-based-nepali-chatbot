@@ -550,7 +550,15 @@ class ConversationViewSet(viewsets.ModelViewSet):
         
         # Generate response using LLM
         try:
-            client = Groq(api_key=settings.GROQ_API_KEY)
+            # Check if user has a custom API key in their profile
+            effective_api_key = settings.GROQ_API_KEY
+            if hasattr(conversation.user, 'profile') and conversation.user.profile.llm_api_key:
+                custom_key = conversation.user.profile.llm_api_key.strip()
+                if custom_key:
+                    effective_api_key = custom_key
+                    logger.info(f"Using custom LLM API key for user {conversation.user.username}")
+
+            client = Groq(api_key=effective_api_key)
             
             response = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
