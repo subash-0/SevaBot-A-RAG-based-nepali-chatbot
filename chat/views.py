@@ -114,7 +114,11 @@ class DocumentViewSet(viewsets.ModelViewSet):
     parser_classes = (MultiPartParser, FormParser)
     
     def get_queryset(self):
-        return Document.objects.filter(user=self.request.user)
+        qs = Document.objects.filter(user=self.request.user)
+        conversation_id = self.request.query_params.get('conversation_id')
+        if conversation_id:
+            qs = qs.filter(conversation_id=conversation_id)
+        return qs
     
     def create(self, request, *args, **kwargs):
         """
@@ -122,6 +126,22 @@ class DocumentViewSet(viewsets.ModelViewSet):
         """
         file = request.FILES.get('file')
         conversation_id = request.data.get('conversation_id')
+
+        conversation = None
+        if conversation_id:
+            try:
+                conversation = Conversation.objects.get(id=conversation_id, user=request.user)
+            except Conversation.DoesNotExist:
+                return Response(
+                    {'error': 'Invalid conversation'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+        else:
+            # Allow upload before first message by creating a new conversation automatically.
+            conversation = Conversation.objects.create(
+                user=request.user,
+                title='नयाँ कुराकानी'
+            )
         
         if not file:
             return Response(
@@ -139,7 +159,7 @@ class DocumentViewSet(viewsets.ModelViewSet):
         # Create document record
         document = Document.objects.create(
             user=request.user,
-            conversation_id=conversation_id if conversation_id else None,
+            conversation=conversation,
             file=file,
             filename=file.name,
             status='pending'
@@ -205,6 +225,23 @@ class DocumentViewSet(viewsets.ModelViewSet):
             except:
                 pass
 
+    def destroy(self, request, *args, **kwargs):
+        """Delete document record and drop its Chroma collection if it exists."""
+        document = self.get_object()
+        collection_name = document.collection_id
+
+        response = super().destroy(request, *args, **kwargs)
+
+        if collection_name:
+            try:
+                rag_service = NepaliRAGService()
+                rag_service.chroma_client.delete_collection(name=collection_name)
+                logger.info(f"Deleted Chroma collection for document {document.id}: {collection_name}")
+            except Exception as e:
+                logger.warning(f"Failed to delete Chroma collection {collection_name} for document {document.id}: {e}")
+
+        return response
+
 class ConversationViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing conversations with RAG support.
@@ -246,11 +283,16 @@ class ConversationViewSet(viewsets.ModelViewSet):
             # User explicitly specified source
             search_source = request.data.get('search_source')
         else:
-            # Auto-detect: if conversation has completed documents, use 'user', else 'permanent'
+            # Auto-detect:
+            # - if conversation has completed documents, search both (user first, then permanent)
+            # - otherwise, search permanent KB
             documents = conversation.documents.filter(status='completed')
             if documents.exists():
-                search_source = 'user'  # Prioritize user's uploaded documents
-                logger.info(f"Auto-detected {documents.count()} user documents, setting search_source='user'")
+                search_source = 'all'
+                logger.info(
+                    f"Auto-detected {documents.count()} user documents, "
+                    "setting search_source='all' (user first + permanent)"
+                )
             else:
                 search_source = 'permanent'  # Fall back to permanent KB
                 logger.info("No user documents found, setting search_source='permanent'")
@@ -269,6 +311,9 @@ class ConversationViewSet(viewsets.ModelViewSet):
             role='user',
             content=content
         )
+
+        # Update conversation title to the latest query (ChatGPT-like)
+        conversation.title = content[:80]
         
         # Generate AI response
         try:
@@ -292,7 +337,9 @@ class ConversationViewSet(viewsets.ModelViewSet):
         assistant_message = Message.objects.create(
             conversation=conversation,
             role='assistant',
-            content=assistant_response
+            parent_message=user_message,
+            content=assistant_response,
+            sources=sources
         )
         
         # Update conversation timestamp
@@ -303,6 +350,13 @@ class ConversationViewSet(viewsets.ModelViewSet):
             'assistant_message': MessageSerializer(assistant_message).data,
             'sources': sources  # Include source metadata
         })
+
+    def generate_simple_response(self, user_input: str) -> str:
+        """Fallback non-RAG response path."""
+        return (
+            "अहिले RAG बन्द छ, त्यसैले म विस्तृत कानुनी उत्तर दिन सक्दिनँ। "
+            "कृपया RAG सक्षम गरेर वा सम्बन्धित दस्तावेज अपलोड गरेर फेरि प्रयास गर्नुहोस्।"
+        )
     
 
 
@@ -321,31 +375,24 @@ class ConversationViewSet(viewsets.ModelViewSet):
         # Initialize RAG service
         rag_service = NepaliRAGService()
         
-        # Get user's documents
-        documents = Document.objects.filter(
-            user=self.request.user,
-            status='completed'
-        )
-        
-        # Check if conversation has specific documents
-        if conversation.documents.filter(status='completed').exists():
-            documents = conversation.documents.filter(status='completed')
+        # Only use documents attached to this conversation (per-chat isolation)
+        documents = conversation.documents.filter(status='completed')
         
         # Decide retrieval strategy
         all_context_chunks = []
         
-        # 1. Retrieve from User Documents if requested
+        def _priority_relevance(chunk, source_priority):
+            """
+            Score helper that keeps relevance as primary factor, but gives a small
+            tie-break preference to user-document chunks when both sources are searched.
+            """
+            base = float(chunk.get('relevance_score') or 0.0)
+            return base + source_priority
+        
+        # 1. Retrieve from User Documents if requested (only current conversation)
         if search_source in ['user', 'all']:
-             documents = conversation.documents.filter(status='completed')
-             if not documents.exists():
-                 # Fallback to general user documents if not specific to conversation
-                 documents = Document.objects.filter(
-                    user=self.request.user,
-                    status='completed'
-                )
-             
-             if documents.exists():
-                logger.info(f"Retrieving from {documents.count()} user documents")
+            if documents.exists():
+                logger.info(f"Retrieving from {documents.count()} conversation-specific user documents")
                 for doc in documents:
                     if doc.collection_id:
                         chunks = rag_service.retrieve_context(
@@ -354,9 +401,11 @@ class ConversationViewSet(viewsets.ModelViewSet):
                             top_k=3,
                             use_permanent_kb=False
                         )
+                        for chunk in chunks:
+                            chunk['_combined_score'] = _priority_relevance(chunk, 0.03)
                         all_context_chunks.extend(chunks)
-             else:
-                 logger.warning("User search requested but no documents found")
+            else:
+                logger.warning("User search requested but no documents found for this conversation")
         
         # 2. Retrieve from Permanent KB if requested
         if search_source in ['permanent', 'all']:
@@ -367,10 +416,18 @@ class ConversationViewSet(viewsets.ModelViewSet):
                 top_k=5,
                 use_permanent_kb=True
             )
+            for chunk in kb_chunks:
+                chunk['_combined_score'] = _priority_relevance(chunk, 0.0)
             all_context_chunks.extend(kb_chunks)
             
-        # Sort by relevance and take top 5
-        all_context_chunks.sort(key=lambda x: x['relevance_score'], reverse=True)
+        # Sort by combined score and take top 5
+        all_context_chunks.sort(
+            key=lambda x: (
+                x.get('_combined_score', float(x.get('relevance_score') or 0.0)),
+                float(x.get('relevance_score') or 0.0),
+            ),
+            reverse=True,
+        )
         top_chunks = all_context_chunks[:5]
             
         if not top_chunks:
@@ -380,17 +437,58 @@ class ConversationViewSet(viewsets.ModelViewSet):
             
         # Log sources for debugging
         
-        # Log sources for debugging
-        sources = {}
+        # Build detailed source metadata for frontend citation chips
+        source_counts = {}
+        source_files = []  # Backwards-compatible aggregate for existing UI
+        citation_entries = []  # Rich per-chunk metadata (chapter/article/preview)
+        seen_files = set()
         for i, chunk in enumerate(top_chunks):
             source = chunk.get('source', 'unknown')
-            sources[source] = sources.get(source, 0) + 1
-            # Log detailed context (requested by user)
-            print(f"=== Chunk {i+1} [{source}] ===")
+            meta = chunk.get('metadata', {})
+
+            file_name = (
+                meta.get('source_file')
+                or meta.get('filename')
+                or meta.get('original_filename')
+                or meta.get('source')
+                or 'Unknown file'
+            )
+
+            chapter = meta.get('chapter') or meta.get('section')
+            dafa = meta.get('dafa') or meta.get('article') or meta.get('section_number')
+            upa_dafa = meta.get('upa_dafa') or meta.get('clause')
+            hierarchical_title = meta.get('hierarchical_title')
+            page_number = meta.get('page') or meta.get('page_start') or meta.get('page_number')
+
+            source_counts[source] = source_counts.get(source, 0) + 1
+
+            key = f"{source}:{file_name}"
+            if key not in seen_files:
+                seen_files.add(key)
+                source_files.append({
+                    'source': source,
+                    'file': file_name,
+                })
+
+            citation_entries.append({
+                'id': chunk.get('id'),
+                'source': source,
+                'file': file_name,
+                'chapter': chapter,
+                'article': dafa,
+                'clause': upa_dafa,
+                'page': page_number,
+                'title': hierarchical_title,
+                'relevance_score': chunk.get('relevance_score'),
+                'preview': chunk.get('text', '')
+            })
+
+            # Log detailed context for observability
+            print(f"=== Chunk {i+1} [{source}] - {file_name} ===")
             print(f"{chunk.get('text', '')[:300]}...")
             print("================================\n")
             
-        print(f"Context sources: {sources}")
+        print(f"Context sources: {source_counts}")
         
         # Format prompt
         if top_chunks:
@@ -432,12 +530,25 @@ class ConversationViewSet(viewsets.ModelViewSet):
             # Store response to return with sources
             return {
                 'response': response.choices[0].message.content,
-                'sources': sources
+                'sources': {
+                    'files': source_files,
+                    'citations': citation_entries
+                }
             }
             
         except Exception as e:
             logger.error(f"LLM API error: {str(e)}")
-            raise
+            fallback_response = (
+                "LLM response अहिले उपलब्ध छैन (quota exceeded )। "
+                "तलका सन्दर्भहरू हेर्नुहोस्, म फेरि उपलब्ध भएपछि पूर्ण उत्तर दिन सक्छु।"
+            )
+            return {
+                'response': fallback_response,
+                'sources': {
+                    'files': source_files,
+                    'citations': citation_entries
+                }
+            }
         
 
 
@@ -488,17 +599,37 @@ class MessageViewSet(viewsets.ModelViewSet):
         message.content = new_content
         message.save()
         
-        # Find and delete the subsequent assistant response if it exists
+        # Remove previous assistant response(s) linked to this user message.
         try:
-            next_message = Message.objects.filter(
+            paired_assistants = Message.objects.filter(
                 conversation=message.conversation,
-                created_at__gt=message.created_at,
-                role='assistant'
-            ).order_by('created_at').first()
-            
-            if next_message:
-                logger.info(f"Deleting old assistant response {next_message.id}")
-                next_message.delete()
+                role='assistant',
+                parent_message=message
+            )
+
+            if paired_assistants.exists():
+                logger.info(f"Deleting {paired_assistants.count()} linked assistant response(s) for message {message.id}")
+                paired_assistants.delete()
+            else:
+                # Backward compatibility for old records without parent linkage.
+                next_user = Message.objects.filter(
+                    conversation=message.conversation,
+                    role='user',
+                    created_at__gt=message.created_at
+                ).order_by('created_at').first()
+
+                legacy_assistant_qs = Message.objects.filter(
+                    conversation=message.conversation,
+                    role='assistant',
+                    created_at__gt=message.created_at,
+                )
+                if next_user:
+                    legacy_assistant_qs = legacy_assistant_qs.filter(created_at__lt=next_user.created_at)
+
+                legacy_assistant = legacy_assistant_qs.order_by('created_at').first()
+                if legacy_assistant:
+                    logger.info(f"Deleting legacy assistant response {legacy_assistant.id}")
+                    legacy_assistant.delete()
         except Exception as e:
             logger.warning(f"Could not delete old assistant response: {e}")
         
@@ -517,17 +648,21 @@ class MessageViewSet(viewsets.ModelViewSet):
                 search_source
             )
             assistant_content = response_data['response']
+            sources_payload = response_data.get('sources', {})
             
-            # Create new assistant message
+            # Create new assistant message linked to edited user message
             assistant_message = Message.objects.create(
                 conversation=message.conversation,
                 role='assistant',
-                content=assistant_content
+                parent_message=message,
+                content=assistant_content,
+                sources=sources_payload
             )
             
             return Response({
                 'user_message': MessageSerializer(message).data,
-                'assistant_message': MessageSerializer(assistant_message).data
+                'assistant_message': MessageSerializer(assistant_message).data,
+                'sources': sources_payload
             })
             
         except Exception as e:

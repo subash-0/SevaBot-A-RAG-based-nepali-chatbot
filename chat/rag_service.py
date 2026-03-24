@@ -14,8 +14,8 @@ from datetime import datetime
 # Custom Nepali chunker for legacy documents
 from .nepali_legal_chunker import NepaliLegalChunker
 
-# Embeddings
-from sentence_transformers import SentenceTransformer
+# Embeddings and reranking
+from sentence_transformers import SentenceTransformer, CrossEncoder
 
 # Vector database
 import chromadb
@@ -39,6 +39,9 @@ class SevaBot_RAG_Service:
     # Collection names
     PERMANENT_COLLECTION = "sevabot_permanent_knowledge"
     USER_COLLECTION_PREFIX = "sevabot_user"
+    EMBEDDING_MODEL_NAME = "intfloat/multilingual-e5-large"
+    # EMBEDDING_MODEL_NAME = "ritesh-07/nepali-legal-e5-finetuned"
+    RERANKER_MODEL_NAME = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
     
     def __init__(self):
         """Initialize SevaBot RAG service."""
@@ -50,13 +53,25 @@ class SevaBot_RAG_Service:
         
         # Initialize embedding model
         # Using a model that supports multilingual semantic search
-        logger.info("Loading multilingual-e5-large for Nepali embeddings...")
+        logger.info(f"Loading embedding model: {self.EMBEDDING_MODEL_NAME}")
         self.embedding_model = SentenceTransformer(
-            'intfloat/multilingual-e5-large',
+            self.EMBEDDING_MODEL_NAME,
             device='cpu'
         )
         self.embedding_model.max_seq_length = 512
         logger.info("Embedding model loaded successfully")
+
+        # Initialize reranker model (real SBERT-style cross-encoder reranking)
+        self.reranker = None
+        try:
+            logger.info(f"Loading cross-encoder reranker: {self.RERANKER_MODEL_NAME}")
+            self.reranker = CrossEncoder(self.RERANKER_MODEL_NAME, device='cpu')
+            logger.info("Cross-encoder reranker loaded successfully")
+        except Exception as rerank_error:
+            logger.warning(
+                "Reranker model could not be loaded, falling back to retrieval-only ranking: %s",
+                rerank_error
+            )
         
         # Initialize ChromaDB
         self.chroma_client = chromadb.PersistentClient(
@@ -113,8 +128,7 @@ class SevaBot_RAG_Service:
         try:
             # 1. Chunk the document
             chunks = self.nepali_chunker.process_pdf_for_rag(
-                pdf_path=pdf_path,
-                max_chunk_tokens=800
+                pdf_path=pdf_path
             )
             
             logger.info(f"Generated {len(chunks)} chunks")
@@ -248,6 +262,7 @@ class SevaBot_RAG_Service:
                     "type": "user_uploaded",
                     "user_id": str(user_id),
                     "document_id": str(document_id),
+                    "source_file": document_metadata.get('filename'),
                     **document_metadata
                 }
             )
@@ -259,7 +274,8 @@ class SevaBot_RAG_Service:
                 {
                     **chunk['metadata'],
                     'chunk_index': i,
-                    'collection_type': 'user'
+                    'collection_type': 'user',
+                    'source_file': document_metadata.get('filename')
                 }
                 for i, chunk in enumerate(chunks)
             ]
@@ -346,7 +362,8 @@ class SevaBot_RAG_Service:
         query: str,
         collection_name: Optional[str] = None,
         top_k: int = 5,
-        use_permanent_kb: bool = False
+        use_permanent_kb: bool = False,
+        candidate_multiplier: int = 4
     ) -> List[Dict]:
         """
         Retrieve relevant context for a query.
@@ -361,6 +378,7 @@ class SevaBot_RAG_Service:
             List of relevant chunks with scores
         """
         results = []
+        candidate_count = max(top_k * max(candidate_multiplier, 1), top_k)
         
         # Generate query embedding
         # Note: E5 instruction says to use "query: " prefix for asymmetric tasks
@@ -376,7 +394,7 @@ class SevaBot_RAG_Service:
                 collection = self.chroma_client.get_collection(collection_name)
                 user_results = collection.query(
                     query_embeddings=[query_embedding],
-                    n_results=top_k,
+                    n_results=candidate_count,
                     include=['documents', 'metadatas', 'distances']
                 )
                 
@@ -404,7 +422,7 @@ class SevaBot_RAG_Service:
             try:
                 kb_results = self.permanent_collection.query(
                     query_embeddings=[query_embedding],
-                    n_results=top_k,
+                    n_results=candidate_count,
                     include=['documents', 'metadatas', 'distances']
                 )
                 
@@ -423,9 +441,6 @@ class SevaBot_RAG_Service:
             except Exception as e:
                 logger.warning(f"Failed to query permanent collection: {e}")
         
-        # Sort combined results by relevance
-        results.sort(key=lambda x: x['relevance_score'], reverse=True)
-        
         # Return unique results (deduplicate by text content) used seen set
         seen_texts = set()
         unique_results = []
@@ -436,9 +451,45 @@ class SevaBot_RAG_Service:
             if text_hash not in seen_texts:
                 seen_texts.add(text_hash)
                 unique_results.append(r)
-        
-        # Return requested number of top results
-        return unique_results[:top_k]
+
+        # Apply SBERT cross-encoder reranking on retrieved candidates
+        return self.rerank_chunks(query=query, chunks=unique_results, top_k=top_k)
+
+    def rerank_chunks(self, query: str, chunks: List[Dict], top_k: int = 5) -> List[Dict]:
+        """
+        Rerank retrieved chunks using a real SBERT cross-encoder model.
+
+        If the reranker is unavailable, falls back to embedding similarity ranking.
+        """
+        if not chunks:
+            return []
+
+        # Keep retrieval score for observability
+        for chunk in chunks:
+            retrieval_score = float(chunk.get('relevance_score', 0.0))
+            chunk['retrieval_score'] = retrieval_score
+
+        if self.reranker is None:
+            chunks.sort(key=lambda item: item.get('retrieval_score', 0.0), reverse=True)
+            for chunk in chunks:
+                chunk['rerank_raw_score'] = None
+                chunk['rerank_score'] = chunk.get('retrieval_score', 0.0)
+                chunk['relevance_score'] = chunk.get('rerank_score', 0.0)
+            return chunks[:top_k]
+
+        query_pairs = [(query, chunk['text']) for chunk in chunks]
+        raw_scores = self.reranker.predict(query_pairs, batch_size=16, show_progress_bar=False)
+
+        for chunk, raw_score in zip(chunks, raw_scores):
+            raw_value = float(raw_score)
+            # Convert raw logit to 0-1 confidence for stable UI display
+            confidence = float(1.0 / (1.0 + np.exp(-raw_value)))
+            chunk['rerank_raw_score'] = raw_value
+            chunk['rerank_score'] = confidence
+            chunk['relevance_score'] = confidence
+
+        chunks.sort(key=lambda item: item.get('rerank_score', 0.0), reverse=True)
+        return chunks[:top_k]
 
     def format_rag_prompt(self, query: str, chunks: List[Dict]) -> str:
         """

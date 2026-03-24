@@ -161,21 +161,8 @@ export default function Sidebar({
           </div>
 
           <button
-            onClick={() => {
-              if (window.innerWidth < 768) setSidebarOpen(false);
-              window.location.href = '/profile';
-            }}
-            className="w-full py-2 px-3 mb-1.5 rounded-xl border border-primary-700 text-primary-200 hover:text-white hover:border-primary-500 hover:bg-primary-800 transition text-xs font-medium flex items-center justify-center gap-2"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-            </svg>
-            प्रोफाइल (Profile)
-          </button>
-
-          <button
             onClick={onLogout}
-            className="w-full py-2 px-3 rounded-xl border border-primary-700 text-primary-200 hover:text-white hover:border-red-500 hover:bg-red-500/20 transition text-xs font-medium flex items-center justify-center gap-2"
+            className="w-full py-2.5 px-3 rounded-xl border border-primary-700 text-primary-200 hover:text-white hover:border-primary-500 hover:bg-primary-800 transition text-xs font-medium flex items-center justify-center gap-2"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
