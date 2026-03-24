@@ -1,3 +1,43 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Serif+Devanagari:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  body {
+    background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 48%, #e2e8f0 100%);
+    color: #102a43;
+  }
+
+  html {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: rgba(188, 204, 220, 0.25);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #bcccdc;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #829ab1;
+  }
+
+  /* Nepali text styling */
+  .np-text {
+    font-family: 'Noto Serif Devanagari', Georgia, serif;
+    line-height: 1.8;
+  }
+  .np-heading {
+    font-family: 'Noto Serif Devanagari', Georgia, serif;
+    font-weight: 600;
+  }
+}

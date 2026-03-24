@@ -21,6 +21,14 @@ import threading
 
 logger = logging.getLogger(__name__)
 
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def health_check(request):
+    """
+    Simple health check endpoint for mobile app testing.
+    """
+    return Response({'status': 'ok', 'message': 'SevaBot Backend is running'})
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def signup(request):
@@ -45,15 +53,28 @@ def signup(request):
 def login(request):
     """
     User login endpoint.
-    Validates credentials and returns token.
+    Validates credentials (username or email) and returns token.
     """
-    username = request.data.get('username')
+    identifier = request.data.get('username') or request.data.get('email')
     password = request.data.get('password')
     
-    # Authenticate user
-    user = authenticate(username=username, password=password)
+    if not identifier or not password:
+        return Response({'error': 'कृपया username/email र password दुबै प्रदान गर्नुहोस्।'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # First try authenticating by username
+    user = authenticate(username=identifier, password=password)
     
+    # If fails, try authenticating by email
+    if user is None:
+        try:
+            user_obj = User.objects.get(email=identifier)
+            user = authenticate(username=user_obj.username, password=password)
+        except (User.DoesNotExist, User.MultipleObjectsReturned):
+            pass
+            
     if user is not None:
+        if not user.is_active:
+             return Response({'error': 'तपाईंको खाता निष्क्रिय छ।'}, status=status.HTTP_403_FORBIDDEN)
         token, created = Token.objects.get_or_create(user=user)
         return Response({
             'token': token.key,
@@ -61,7 +82,7 @@ def login(request):
         })
     
     return Response(
-        {'error': 'Invalid credentials'}, 
+        {'error': 'username/email वा password गलत छ। कृपया फेरी प्रयास गर्नुहोस्।'}, 
         status=status.HTTP_401_UNAUTHORIZED
     )
 
@@ -353,15 +374,11 @@ class ConversationViewSet(viewsets.ModelViewSet):
         top_chunks = all_context_chunks[:5]
             
         if not top_chunks:
-            msg = """मलाई तपाईंको प्रश्नको उत्तर दिन पर्याप्त जानकारी छैन। 
-
-    कृपया कानुनी दस्तावेज अपलोड गर्नुहोस् वा अधिक विशिष्ट प्रश्न सोध्नुहोस्।
-
-    (I don't have enough information to answer your question. Please upload a legal document or ask a more specific question.)"""
-            return {
-                'response': msg,
-                'sources': {}
-            }
+            # Fallback for general conversation (greetings, etc.) or when no context is found
+            logger.info("No context chunks found - attempting general response")
+            pass
+            
+        # Log sources for debugging
         
         # Log sources for debugging
         sources = {}
@@ -375,8 +392,22 @@ class ConversationViewSet(viewsets.ModelViewSet):
             
         print(f"Context sources: {sources}")
         
-        # Format RAG prompt
-        prompt = rag_service.format_rag_prompt(user_input, top_chunks)
+        # Format prompt
+        if top_chunks:
+            prompt = rag_service.format_rag_prompt(user_input, top_chunks)
+            system_instruction = "तपाईं एक नेपाली कानुनी सहायक हुनुहुन्छ। दिइएको सन्दर्भको आधारमा मात्र नेपालीमा उत्तर दिनुहोस्।"
+        else:
+            # General conversation prompt
+            prompt = f"""प्रश्न: {user_input}
+            
+निर्देशन: 
+तपाईं एक सहयोगी कानुनी सहायक (SevaBot) हुनुहुन्छ। 
+प्रयोगकर्ताले सोधेको प्रश्नको लागि कुनै विशिष्ट कानुनी दस्तावेज (सन्दर्भ) भेटिएन।
+१. यदि यो सामान्य कुराकानी (जस्तै 'नमस्कार', 'के छ') हो भने, शिष्टतापूर्वक नेपालीमा जवाफ दिनुहोस्।
+२. यदि यो कानुनी प्रश्न हो भने, प्रयोगकर्तालाई जानकारी दिनुहोस् कि तपाईंसँग यस विषयमा विशिष्ट जानकारी वा दस्तावेज छैन, र उहाँलाई सम्बन्धित दस्तावेज अपलोड गर्न वा कानुनी विज्ञसँग परामर्श गर्न सुझाव दिनुहोस्।
+३. गलत जानकारी नदिनुहोस्।
+"""
+            system_instruction = "तपाईं एक सहयोगी नेपाली कानुनी सहायक हुनुहुन्छ। सन्दर्भ बिनाको प्रश्नहरूको लागि बुद्धिमानीपूर्वक जवाफ दिनुहोस्।"
         
         # Generate response using LLM
         try:
@@ -387,7 +418,7 @@ class ConversationViewSet(viewsets.ModelViewSet):
                 messages=[
                     {
                         "role": "system",
-                        "content": "तपाईं एक नेपाली कानुनी सहायक हुनुहुन्छ। दिइएको सन्दर्भको आधारमा मात्र नेपालीमा उत्तर दिनुहोस्।"
+                        "content": system_instruction
                     },
                     {
                         "role": "user",

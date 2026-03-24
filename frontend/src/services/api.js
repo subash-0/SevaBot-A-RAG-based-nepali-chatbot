@@ -81,7 +81,7 @@
 
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:8000/api';
+const API_BASE_URL = 'https://silent-mice-hammer.loca.lt/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -120,6 +120,9 @@ export const authAPI = {
   signup: (userData) => api.post('/auth/signup/', userData),
   login: (credentials) => api.post('/auth/login/', credentials),
   logout: () => api.post('/auth/logout/'),
+  getProfile: () => api.get('/auth/profile/'),
+  updateProfile: (userData) => api.patch('/auth/profile/', userData),
+  changePassword: (passwordData) => api.post('/auth/change-password/', passwordData),
 };
 
 // Conversation APIs
@@ -135,7 +138,10 @@ export const conversationAPI = {
 
 // Document APIs
 export const documentAPI = {
-  list: () => api.get('/documents/'),
+  list: (conversationId = null) =>
+    api.get('/documents/', {
+      params: conversationId ? { conversation_id: conversationId } : {},
+    }),
   upload: (file, conversationId = null) => {
     const formData = new FormData();
     formData.append('file', file);

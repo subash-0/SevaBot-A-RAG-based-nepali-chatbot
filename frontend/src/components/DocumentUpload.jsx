@@ -27,7 +27,7 @@ export default function DocumentUpload({ conversationId, onUploadComplete }) {
     setUploading(true);
     
     try {
-      const response = await documentAPI.upload(file, conversationId);
+      const response = await documentAPI.upload(file, conversationId || null);
       setUploading(false);
       setProcessing(true);
       
@@ -39,6 +39,8 @@ export default function DocumentUpload({ conversationId, onUploadComplete }) {
       setUploading(false);
       setTimeout(() => setError(''), 3000);
     }
+
+    e.target.value = '';
   };
   
   const pollDocumentStatus = async (docId) => {
@@ -96,28 +98,16 @@ export default function DocumentUpload({ conversationId, onUploadComplete }) {
         onClick={() => fileInputRef.current?.click()}
         disabled={uploading || processing}
         type="button"
-        className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+        className="p-2 text-primary-500 hover:text-primary-700 hover:bg-primary-100 rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed"
         title="PDF अपलोड गर्नुहोस्"
       >
         {uploading || processing ? (
-          <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-              fill="none"
-            />
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-            />
+          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
           </svg>
         ) : (
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
           </svg>
         )}
@@ -125,14 +115,16 @@ export default function DocumentUpload({ conversationId, onUploadComplete }) {
       
       {/* Status tooltip */}
       {(uploading || processing) && (
-        <div className="absolute -top-10 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white text-xs px-3 py-1 rounded-lg whitespace-nowrap">
-          {uploading ? 'अपलोड...' : 'प्रक्रिया...'}
+        <div className="absolute -top-10 left-1/2 transform -translate-x-1/2 bg-primary-900 text-white text-[10px] px-3 py-1.5 rounded-lg whitespace-nowrap shadow-lg border border-primary-700">
+          {uploading ? 'अपलोड हुँदैछ...' : 'SBERT embedding...'}
+          <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-primary-900" />
         </div>
       )}
       
       {error && (
-        <div className="absolute -top-10 left-1/2 transform -translate-x-1/2 bg-red-600 text-white text-xs px-3 py-1 rounded-lg whitespace-nowrap">
+        <div className="absolute -top-10 left-1/2 transform -translate-x-1/2 bg-black text-white text-[10px] px-3 py-1.5 rounded-lg whitespace-nowrap shadow-lg border border-primary-800">
           {error}
+          <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-black" />
         </div>
       )}
     </div>

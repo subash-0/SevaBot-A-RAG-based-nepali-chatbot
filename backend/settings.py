@@ -30,7 +30,7 @@ SECRET_KEY = 'django-insecure-1)bv#8gkget4iepr3od8_z!p8=a)v=6-_%0k#a9z0ax6c(^xoi
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -146,10 +146,7 @@ CHROMADB_PATH = BASE_DIR / 'chromadb_data'
 
 
 # CORS settings - allow React frontend to access Django API
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",  # Vite's default port
-    "http://127.0.0.1:5173",
-]
+CORS_ALLOW_ALL_ORIGINS = True
 
 CORS_ALLOW_CREDENTIALS = True
 
