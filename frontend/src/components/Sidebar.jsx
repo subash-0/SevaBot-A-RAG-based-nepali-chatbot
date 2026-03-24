@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import DocumentsPanel from './DocumentsPanel';
+import { Link } from 'react-router-dom';
 
 export default function Sidebar({
   conversations,
@@ -28,7 +29,7 @@ export default function Sidebar({
       <div
         className={`
           fixed md:static inset-y-0 left-0 z-50
-          w-80 md:w-80 bg-gradient-to-b from-black via-primary-950 to-primary-900 text-white
+          w-80 md:w-80 
           transform transition-transform duration-200 ease-out
           md:transform-none
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
@@ -40,17 +41,17 @@ export default function Sidebar({
         <div className="p-4 border-b border-primary-800/80 flex-shrink-0">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 bg-white rounded-xl flex items-center justify-center shadow-lg shadow-black/30">
-                <span className="text-sm ">⚖️</span>
+              <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-lg shadow-black/30 overflow-hidden p-1">
+                <img src="/logo.png" alt="SevaBot" className="w-full h-full object-contain" />
               </div>
               <div>
-                <h2 className="text-base font-bold text-white tracking-tight">Workspace</h2>
-                <p className="text-[10px] text-primary-200 leading-tight">Chat + Documents</p>
+                <h2 className="text-base font-bold text-gray-600 tracking-tight">Workspace</h2>
+                <p className="text-[10px] text-gray-600 leading-tight">Chat + Documents</p>
               </div>
             </div>
             <button
               onClick={() => setSidebarOpen(false)}
-              className="md:hidden text-primary-400 hover:text-white transition p-1"
+              className="md:hidden text-gray-100 hover:text-white transition p-1"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -63,8 +64,8 @@ export default function Sidebar({
             <button
               onClick={() => setShowDocuments(false)}
               className={`flex-1 py-1.5 px-2 rounded-md transition text-xs font-medium ${!showDocuments
-                ? 'bg-primary-700 text-white shadow-sm'
-                : 'text-primary-400 hover:text-primary-200'
+                ? 'bg-primary-700 text-gray-100 shadow-sm'
+                : 'text-primary-100 hover:text-primary-200'
                 }`}
             >
               कुराकानी
@@ -72,8 +73,8 @@ export default function Sidebar({
             <button
               onClick={() => setShowDocuments(true)}
               className={`flex-1 py-1.5 px-2 rounded-md transition text-xs font-medium ${showDocuments
-                ? 'bg-primary-700 text-white shadow-sm'
-                : 'text-primary-400 hover:text-primary-200'
+                ? 'bg-primary-700 text-gray-100 shadow-sm'
+                : 'text-primary-100 hover:text-primary-200'
                 }`}
             >
               दस्तावेज
@@ -110,18 +111,18 @@ export default function Sidebar({
                   <div
                     key={conv.id}
                     className={`group relative rounded-xl mb-1.5 transition ${activeConversation?.id === conv.id
-                      ? 'bg-primary-800 ring-1 ring-primary-600/80'
-                      : 'hover:bg-primary-800/60'
+                      ? 'bg-primary-800 ring-1 text-primary-100 ring-primary-800/80'
+                      : 'hover:bg-primary-800/60 hover:text-primary-100 text-primary-600'
                       }`}
                   >
                     <button
                       onClick={() => onSelectConversation(conv.id)}
                       className="w-full text-left p-3.5"
                     >
-                      <div className="font-medium truncate text-sm text-primary-100 pr-6">
+                      <div className="font-medium truncate text-sm  pr-6">
                         {conv.recent_exchange?.query || conv.title}
                       </div>
-                      <div className="text-xs text-primary-500 truncate mt-0.5">
+                      <div className="text-xs text-primary-300 truncate mt-0.5">
                         {conv.last_message?.content || 'कुनै सन्देश छैन'}
                       </div>
                     </button>
@@ -146,23 +147,23 @@ export default function Sidebar({
 
         {/* User Section */}
         <div className="p-3 border-t border-primary-800/80 flex-shrink-0 bg-primary-950/20">
-          <div className="flex items-center gap-2.5 mb-2.5">
+          <Link to="/profile" className="flex items-center gap-2.5 mb-2.5">
             <div className="w-8 h-8 bg-primary-700 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 text-primary-100">
               {user?.username?.charAt(0).toUpperCase() || 'U'}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="font-medium truncate text-sm text-primary-100">
+              <div className="font-medium truncate text-sm text-primary-500">
                 {user?.username || 'User'}
               </div>
               <div className="text-[10px] text-primary-500 truncate">
                 {user?.email || ''}
               </div>
             </div>
-          </div>
+          </Link>
 
           <button
             onClick={onLogout}
-            className="w-full py-2.5 px-3 rounded-xl border border-primary-700 text-primary-200 hover:text-white hover:border-primary-500 hover:bg-primary-800 transition text-xs font-medium flex items-center justify-center gap-2"
+            className="w-full py-2.5 px-3 rounded-xl border border-primary-700 text-gray-600 font-semibold hover:text-white hover:border-primary-500 hover:bg-primary-800 transition text-xs  flex items-center justify-center gap-2"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />

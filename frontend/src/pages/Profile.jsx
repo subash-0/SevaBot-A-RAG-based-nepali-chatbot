@@ -49,17 +49,11 @@ export default function Profile() {
       if (response.data) {
         setUser(prev => ({ ...prev, ...response.data }));
         localStorage.setItem('user', JSON.stringify({ ...user, ...response.data }));
-        setSuccessMsg('प्रोफाइल सफलतापूर्वक अपडेट भयो। (Profile updated successfully)');
+        setSuccessMsg('प्रोफाइल सफलतापूर्वक अपडेट भयो।');
       }
     } catch (error) {
       console.error(error);
-      if (error.response && error.response.status === 404) {
-        // Fallback for missing backend endpoint
-        localStorage.setItem('user', JSON.stringify(user));
-        setSuccessMsg('प्रोफाइल सफलतापूर्वक अपडेट भयो। (Profile updated locally)');
-      } else {
-        setErrorMsg('प्रोफाइल अपडेट गर्न असफल भयो। (Failed to update profile)');
-      }
+      setErrorMsg(error.response?.data?.error || 'प्रोफाइल अपडेट गर्न असफल भयो। कृपया फेरि प्रयास गर्नुहोस्।');
     } finally {
       setLoading(false);
       setTimeout(() => setSuccessMsg(''), 5000);
@@ -69,7 +63,7 @@ export default function Profile() {
   const handleChangePassword = async (e) => {
     e.preventDefault();
     if (passwordData.new_password !== passwordData.confirm_password) {
-      setErrorMsg("नयाँ पासवर्डहरू मिलेनन्। (New passwords don't match)");
+      setErrorMsg("नयाँ पासवर्डहरू मिलेनन्।");
       return;
     }
 
@@ -81,16 +75,10 @@ export default function Profile() {
         old_password: passwordData.current_password, 
         new_password: passwordData.new_password 
       });
-      setSuccessMsg('पासवर्ड सफलतापूर्वक परिवर्तन भयो। (Password changed successfully)');
+      setSuccessMsg('पासवर्ड सफलतापूर्वक परिवर्तन भयो।');
       setPasswordData({ current_password: '', new_password: '', confirm_password: '' });
     } catch (error) {
-      if (error.response && error.response.status === 404) {
-        // Fallback for missing backend endpoint
-        setSuccessMsg('पासवर्ड सफलतापूर्वक परिवर्तन भयो। (Simulated success locally)');
-        setPasswordData({ current_password: '', new_password: '', confirm_password: '' });
-      } else {
-        setErrorMsg(error.response?.data?.error || 'पासवर्ड परिवर्तन गर्न असफल भयो। (Failed to change password)');
-      }
+      setErrorMsg(error.response?.data?.error || 'पासवर्ड परिवर्तन गर्न असफल भयो।');
     } finally {
       setLoading(false);
       setTimeout(() => setSuccessMsg(''), 5000);

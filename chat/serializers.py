@@ -74,10 +74,10 @@ def build_recent_exchange(conversation: Conversation):
 
 class UserSerializer(serializers.ModelSerializer):
     """
-    Serializer for user registration.
+    Serializer for user registration and profile management.
     We use write_only for password so it's never returned in API responses.
     """
-    password = serializers.CharField(write_only=True, min_length=8)
+    password = serializers.CharField(write_only=True, min_length=8, required=False)
 
     class Meta:
         model = User
@@ -85,12 +85,26 @@ class UserSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         # Use create_user to properly hash passwords
+        password = validated_data.pop('password')
         user = User.objects.create_user(
             username=validated_data['username'],
             email=validated_data.get('email', ''),
-            password=validated_data['password']
+            password=password
         )
         return user
+
+    def update(self, instance, validated_data):
+        # Handle password update separately if provided
+        if 'password' in validated_data:
+            password = validated_data.pop('password')
+            instance.set_password(password)
+        
+        # Update other fields normally
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        
+        instance.save()
+        return instance
 
 
 class MessageSerializer(serializers.ModelSerializer):

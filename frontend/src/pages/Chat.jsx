@@ -411,20 +411,24 @@ export default function Chat() {
         onNewChat={startNewChat}
         onLogout={handleLogout}
         onDeleteConversation={handleDeleteConversation}
+        onOpenProfile={() => navigate('/profile')}
       />
 
       <div className={`flex-1 min-w-0 flex flex-col ${isDark ? 'bg-[radial-gradient(circle_at_top,_#1e293b,_#0f172a_45%,_#020617)]' : 'bg-[radial-gradient(circle_at_top,_#f8fafc,_#eef2ff_35%,_#e2e8f0)]'}`}>
-        <div className={`border-b backdrop-blur px-4 py-3 md:px-6 flex items-center gap-3 ${isDark ? 'border-slate-700/60 bg-slate-900/70' : 'border-white/70 bg-white/80'}`}>
-          <button onClick={() => setSidebarOpen(true)} className="md:hidden p-1.5 hover:bg-primary-100 rounded-lg transition text-primary-700">
+        <div className={`border-b backdrop-blur px-4 py-3 md:px-6 flex items-center gap-3 ${isDark ? 'border-primary-800 bg-primary-950/90' : 'border-primary-600 bg-[radial-gradient(circle_at_top,_#f8fafc,_#eef2ff_35%,_#e2e8f0)] text-primary-500'}`}>
+          <button onClick={() => setSidebarOpen(true)} className={`md:hidden p-1.5 rounded-lg transition ${isDark ? 'hover:bg-primary-900 text-primary-400' : 'hover:bg-primary-600 text-primary-500'}`}>
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
           </button>
           <div className="flex-1 min-w-0 flex items-center gap-3">
-            <h1 className={`text-base md:text-lg font-bold tracking-tight truncate ${isDark ? 'text-slate-100' : 'text-primary-900'}`}>SevaBot</h1>
-            <p className={`text-base md:text-sm  tracking-tight truncate ${isDark ? 'text-slate-100' : 'text-primary-900'}`}>RAG-Based Nepali Legal Assistant</p>
+            <img src="/logo.png" alt="SevaBot" className="w-8 h-8 object-contain" />
+            <div className="hidden sm:block">
+              <h1 className={`text-base md:text-lg font-bold tracking-tight truncate ${isDark ? 'text-primary-100' : 'text-primary-500'}`}>SevaBot</h1>
+              <p className={`text-xs tracking-tight truncate ${isDark ? 'text-primary-300' : 'text-primary-400'}`}>डिजिटल नागरिक बडापत्र</p>
+            </div>
           </div>
           <button
             onClick={() => setIsDark((prev) => !prev)}
-            className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${isDark ? 'border-slate-600 bg-slate-800 text-slate-100 hover:bg-slate-700' : 'border-primary-200 bg-white text-primary-700 hover:bg-primary-50'}`}
+            className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${isDark ? 'border-primary-800 bg-primary-900 text-slate-100 hover:bg-primary-800' : 'border-primary-100 bg-primary-100 text-primary-500 hover:bg-primary-500 hover:text-primary-100'}`}
             title="Toggle theme"
           >
             <span>{isDark ? '☀️' : '🌙'}</span>
@@ -436,9 +440,11 @@ export default function Chat() {
           {messages.length === 0 ? (
             <div className="h-full flex items-center justify-center">
               <div className="w-full max-w-3xl px-4 text-center">
-                <div className="w-16 h-16 bg-primary-900 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-primary-900/20"><span className="text-3xl">&#x1F64F;</span></div>
-                <h2 className="np-heading text-2xl mb-2 text-primary-900">नमस्कार!</h2>
-                <p className="text-primary-600 text-sm mb-8">तपाईंको नेपाली कानुनी सहायक — Retrieval-Augmented Generation with SBERT Reranking</p>
+                <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl overflow-hidden p-2">
+                  <img src="/logo.png" alt="SevaBot" className="w-full h-full object-contain" />
+                </div>
+                <h2 className="np-heading text-2xl mb-2 text-primary-900">नमस्कार! म SevaBot हुँ</h2>
+                <p className="text-primary-600 text-sm mb-8">नेपाली कानुनी सहायक — डिजिटल नागरिक बडापत्र</p>
                 <div className="grid md:grid-cols-2 gap-4 text-left">
                   <div className="rounded-2xl border border-primary-200 bg-white/90 p-5 shadow-sm">
                     <h3 className="font-semibold text-sm text-primary-900 mb-3">कसरी प्रयोग गर्ने</h3>
@@ -468,7 +474,12 @@ export default function Chat() {
                   <div className={`max-w-[90%] md:max-w-[78%] rounded-2xl px-4 py-3 md:px-5 md:py-4 shadow-sm ${message.role === 'user' ? 'bg-primary-900 text-white shadow-primary-900/20' : isDark ? 'bg-slate-900/90 border border-slate-700 text-slate-100' : 'bg-white/95 border border-primary-200 text-primary-800'}`}>
                     {message.role === 'assistant' && (
                       <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-primary-100">
-                        <div className="flex items-center gap-2"><div className="w-6 h-6 bg-primary-100 rounded-lg flex items-center justify-center"><span className="text-xs">⚖️</span></div><span className="font-semibold text-xs text-primary-700">SevaBot</span></div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 bg-white rounded-lg flex items-center justify-center overflow-hidden border border-primary-100 shadow-sm">
+                            <img src="/logo.png" alt="Bot" className="w-full h-full object-contain p-0.5" />
+                          </div>
+                          <span className="font-semibold text-xs text-primary-700">SevaBot</span>
+                        </div>
                         <button onClick={() => handleCopyMessage(message.content)} className="p-1.5 hover:bg-primary-100 rounded-lg transition" title="प्रतिलिपि गर्नुहोस्"><svg className="w-3.5 h-3.5 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button>
                       </div>
                     )}
@@ -512,8 +523,10 @@ export default function Chat() {
                     <div className="flex justify-start message-enter mt-2">
                       <div className={`rounded-2xl border px-4 py-3 shadow-sm ${isDark ? 'border-slate-700 bg-slate-900 text-slate-100' : 'border-primary-200 bg-white text-primary-800'}`}>
                         <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 bg-primary-100 rounded-lg flex items-center justify-center"><span className="text-xs">⚖️</span></div>
-                          <span className={`text-xs ${isDark ? 'text-slate-300' : 'text-primary-600'}`}>Retrieving & reranking...</span>
+                          <div className="w-6 h-6 bg-white rounded-lg flex items-center justify-center overflow-hidden border border-primary-100">
+                            <img src="/logo.png" alt="Bot" className="w-full h-full object-contain p-0.5" />
+                          </div>
+                          <span className={`text-xs ${isDark ? 'text-slate-300' : 'text-primary-600'}`}>SevaBot सोच्दैछ...</span>
                           <div className="flex gap-1 ml-1">
                             <div className="w-1.5 h-1.5 bg-primary-400 rounded-full typing-dot"></div>
                             <div className="w-1.5 h-1.5 bg-primary-400 rounded-full typing-dot"></div>
@@ -528,8 +541,18 @@ export default function Chat() {
 
               {loading && !regeneratingMessageId && processingConversationId === activeConversation?.id && (
                 <div className="flex justify-start message-enter">
-                  <div className="rounded-2xl border border-primary-200 bg-white px-4 py-3 shadow-sm">
-                    <div className="flex items-center gap-2"><div className="w-6 h-6 bg-primary-100 rounded-lg flex items-center justify-center"><span className="text-xs">⚖️</span></div><span className="text-xs text-primary-600">Retrieving & reranking...</span><div className="flex gap-1 ml-1"><div className="w-1.5 h-1.5 bg-primary-400 rounded-full typing-dot"></div><div className="w-1.5 h-1.5 bg-primary-400 rounded-full typing-dot"></div><div className="w-1.5 h-1.5 bg-primary-400 rounded-full typing-dot"></div></div></div>
+                  <div className={`rounded-2xl border px-4 py-3 shadow-sm ${isDark ? 'border-slate-700 bg-slate-900 text-slate-100' : 'border-primary-200 bg-white text-primary-800'}`}>
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 bg-white rounded-lg flex items-center justify-center overflow-hidden border border-primary-100">
+                        <img src="/logo.png" alt="Bot" className="w-full h-full object-contain p-0.5" />
+                      </div>
+                      <span className={`text-xs ${isDark ? 'text-slate-300' : 'text-primary-600'}`}>SevaBot सोच्दैछ...</span>
+                      <div className="flex gap-1 ml-1">
+                        <div className="w-1.5 h-1.5 bg-primary-400 rounded-full typing-dot"></div>
+                        <div className="w-1.5 h-1.5 bg-primary-400 rounded-full typing-dot"></div>
+                        <div className="w-1.5 h-1.5 bg-primary-400 rounded-full typing-dot"></div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -541,7 +564,28 @@ export default function Chat() {
 
           <div className={`border-t backdrop-blur px-4 py-3 md:px-6 ${isDark ? 'border-slate-700/60 bg-slate-900/70' : 'border-white/70 bg-white/80'}`}>
           <form onSubmit={handleSendMessage} className="max-w-4xl mx-auto">
-            <div className="mb-3 flex justify-end">
+           
+            <div className={`relative rounded-2xl border shadow-sm ${isDark ? 'border-slate-600 bg-slate-900' : 'border-primary-300 bg-white'}`}>
+              <textarea
+                value={romanizedTypingEnabled ? transliterate(inputRaw) : inputRaw}
+                onChange={(e) => handleRawChange(e, setInputRaw)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage(e);
+                  }
+                }}
+                placeholder="आफ्नो प्रश्न नेपालीमा सोध्नुहोस्..."
+                className={`w-full pl-12 pr-14 py-3 rounded-2xl resize-none transition text-sm np-text border-0 outline-none focus:outline-none focus:ring-0 ${isDark ? 'bg-transparent text-slate-100 placeholder:text-slate-400' : 'bg-transparent text-primary-900 placeholder:text-primary-500'}`}
+                rows="1"
+                disabled={loading}
+                style={{ minHeight: '52px', maxHeight: '120px' }}
+              />
+
+              <div className="absolute top-1/2 -translate-y-1/2 left-3 z-10">
+                <DocumentUpload conversationId={activeConversation?.id} onUploadComplete={handleDocumentUploadComplete} />
+              </div>
+ <div className="mb-3 flex justify-end absolute top-1/2 -translate-y-1/2 right-20 z-10">
               <button
                 type="button"
                 onClick={() => setRomanizedTypingEnabled((prev) => !prev)}
@@ -558,28 +602,12 @@ export default function Chat() {
                 <span>Romanized नेपाली typing</span>
               </button>
             </div>
-            <div className={`relative rounded-2xl border shadow-sm ${isDark ? 'border-slate-600 bg-slate-900' : 'border-primary-300 bg-white'}`}>
-              <textarea
-                value={romanizedTypingEnabled ? transliterate(inputRaw) : inputRaw}
-                onChange={(e) => handleRawChange(e, setInputRaw)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendMessage(e);
-                  }
-                }}
-                placeholder="आफ्नो प्रश्न नेपालीमा सोध्नुहोस्..."
-                className={`w-full pl-12 pr-12 py-3 rounded-2xl resize-none transition text-sm np-text border-0 outline-none focus:outline-none focus:ring-0 ${isDark ? 'bg-transparent text-slate-100 placeholder:text-slate-400' : 'bg-transparent text-primary-900 placeholder:text-primary-500'}`}
-                rows="1"
-                disabled={loading}
-                style={{ minHeight: '52px', maxHeight: '120px' }}
-              />
-
-              <div className="absolute top-1/2 -translate-y-1/2 left-3">
-                <DocumentUpload conversationId={activeConversation?.id} onUploadComplete={handleDocumentUploadComplete} />
-              </div>
-
-              <button type="submit" disabled={loading || !(romanizedTypingEnabled ? transliterate(inputRaw).trim() : inputRaw.trim())} className="absolute top-1/2 -translate-y-1/2 right-3 bg-primary-900 hover:bg-primary-800 text-white p-2 rounded-xl transition disabled:opacity-30 disabled:cursor-not-allowed" title="पठाउनुहोस्">
+              <button
+                type="submit"
+                disabled={loading || !(romanizedTypingEnabled ? transliterate(inputRaw).trim() : inputRaw.trim())}
+                className="absolute top-1/2 -translate-y-1/2 right-3 bg-primary-900 hover:bg-primary-800 text-white p-2 rounded-xl transition disabled:opacity-30 disabled:cursor-not-allowed z-10"
+                title="पठाउनुहोस्"
+              >
                 {loading ? (
                   <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>
                 ) : (
@@ -592,7 +620,7 @@ export default function Chat() {
       </div>
 
       {selectedCitation && (
-        <div className="fixed bottom-6 right-6 z-50 max-w-md w-[360px]">
+        <div className="fixed bottom-2 right-6 z-50 max-w-md w-[360px] overflow-y-auto max-h-[calc(100vh-1rem)] no-scrollbar">
           <div className={`rounded-2xl border shadow-xl ${isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-primary-200 text-primary-900'}`}>
             <div className="flex items-center justify-between gap-2 border-b px-4 py-3 text-sm font-semibold">
               <div className="truncate" title={selectedCitation.file}>{selectedCitation.file}</div>
