@@ -10,13 +10,6 @@ export default function DocumentUpload({ conversationId, onUploadComplete }) {
   const handleFileSelect = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
-    if (!conversationId) {
-      setError('पहिले कुराकानी सुरु गर्नुहोस्');
-      setTimeout(() => setError(''), 3000);
-      e.target.value = '';
-      return;
-    }
     
     if (!file.name.endsWith('.pdf')) {
       setError('PDF मात्र');
@@ -34,7 +27,7 @@ export default function DocumentUpload({ conversationId, onUploadComplete }) {
     setUploading(true);
     
     try {
-      const response = await documentAPI.upload(file, conversationId);
+      const response = await documentAPI.upload(file, conversationId || null);
       setUploading(false);
       setProcessing(true);
       

@@ -50,6 +50,8 @@
 
 from django.db import models
 from django.contrib.auth.models import User
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 
 class Conversation(models.Model):
     """
@@ -84,6 +86,13 @@ class Message(models.Model):
         related_name='messages'
     )
     role = models.CharField(max_length=10, choices=ROLE_CHOICES)
+    parent_message = models.ForeignKey(
+        'self',
+        on_delete=models.CASCADE,
+        related_name='child_replies',
+        null=True,
+        blank=True
+    )
     content = models.TextField()
     sources = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -156,3 +165,21 @@ class Document(models.Model):
 
     def __str__(self):
         return f"{self.filename} - {self.status}"
+
+
+@receiver(post_delete, sender=Document)
+def delete_document_file_on_row_delete(sender, instance, **kwargs):
+    """Remove uploaded file from storage when its Document row is deleted."""
+    if not instance.file:
+        return
+
+    file_name = instance.file.name
+    if not file_name:
+        return
+
+    # Guard in case multiple rows reference the same file path.
+    is_referenced_elsewhere = Document.objects.filter(file=file_name).exists()
+    if is_referenced_elsewhere:
+        return
+
+    instance.file.delete(save=False)

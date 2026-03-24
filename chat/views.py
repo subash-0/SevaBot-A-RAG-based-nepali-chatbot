@@ -106,17 +106,20 @@ class DocumentViewSet(viewsets.ModelViewSet):
         file = request.FILES.get('file')
         conversation_id = request.data.get('conversation_id')
 
-        if not conversation_id:
-            return Response(
-                {'error': 'conversation_id is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        try:
-            conversation = Conversation.objects.get(id=conversation_id, user=request.user)
-        except Conversation.DoesNotExist:
-            return Response(
-                {'error': 'Invalid conversation'},
-                status=status.HTTP_404_NOT_FOUND
+        conversation = None
+        if conversation_id:
+            try:
+                conversation = Conversation.objects.get(id=conversation_id, user=request.user)
+            except Conversation.DoesNotExist:
+                return Response(
+                    {'error': 'Invalid conversation'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+        else:
+            # Allow upload before first message by creating a new conversation automatically.
+            conversation = Conversation.objects.create(
+                user=request.user,
+                title='नयाँ कुराकानी'
             )
         
         if not file:
@@ -259,11 +262,16 @@ class ConversationViewSet(viewsets.ModelViewSet):
             # User explicitly specified source
             search_source = request.data.get('search_source')
         else:
-            # Auto-detect: if conversation has completed documents, use 'user', else 'permanent'
+            # Auto-detect:
+            # - if conversation has completed documents, search both (user first, then permanent)
+            # - otherwise, search permanent KB
             documents = conversation.documents.filter(status='completed')
             if documents.exists():
-                search_source = 'user'  # Prioritize user's uploaded documents
-                logger.info(f"Auto-detected {documents.count()} user documents, setting search_source='user'")
+                search_source = 'all'
+                logger.info(
+                    f"Auto-detected {documents.count()} user documents, "
+                    "setting search_source='all' (user first + permanent)"
+                )
             else:
                 search_source = 'permanent'  # Fall back to permanent KB
                 logger.info("No user documents found, setting search_source='permanent'")
@@ -308,6 +316,7 @@ class ConversationViewSet(viewsets.ModelViewSet):
         assistant_message = Message.objects.create(
             conversation=conversation,
             role='assistant',
+            parent_message=user_message,
             content=assistant_response,
             sources=sources
         )
@@ -320,6 +329,13 @@ class ConversationViewSet(viewsets.ModelViewSet):
             'assistant_message': MessageSerializer(assistant_message).data,
             'sources': sources  # Include source metadata
         })
+
+    def generate_simple_response(self, user_input: str) -> str:
+        """Fallback non-RAG response path."""
+        return (
+            "अहिले RAG बन्द छ, त्यसैले म विस्तृत कानुनी उत्तर दिन सक्दिनँ। "
+            "कृपया RAG सक्षम गरेर वा सम्बन्धित दस्तावेज अपलोड गरेर फेरि प्रयास गर्नुहोस्।"
+        )
     
 
 
@@ -344,6 +360,14 @@ class ConversationViewSet(viewsets.ModelViewSet):
         # Decide retrieval strategy
         all_context_chunks = []
         
+        def _priority_relevance(chunk, source_priority):
+            """
+            Score helper that keeps relevance as primary factor, but gives a small
+            tie-break preference to user-document chunks when both sources are searched.
+            """
+            base = float(chunk.get('relevance_score') or 0.0)
+            return base + source_priority
+        
         # 1. Retrieve from User Documents if requested (only current conversation)
         if search_source in ['user', 'all']:
             if documents.exists():
@@ -356,6 +380,8 @@ class ConversationViewSet(viewsets.ModelViewSet):
                             top_k=3,
                             use_permanent_kb=False
                         )
+                        for chunk in chunks:
+                            chunk['_combined_score'] = _priority_relevance(chunk, 0.03)
                         all_context_chunks.extend(chunks)
             else:
                 logger.warning("User search requested but no documents found for this conversation")
@@ -369,10 +395,18 @@ class ConversationViewSet(viewsets.ModelViewSet):
                 top_k=5,
                 use_permanent_kb=True
             )
+            for chunk in kb_chunks:
+                chunk['_combined_score'] = _priority_relevance(chunk, 0.0)
             all_context_chunks.extend(kb_chunks)
             
-        # Sort by relevance and take top 5
-        all_context_chunks.sort(key=lambda x: x['relevance_score'], reverse=True)
+        # Sort by combined score and take top 5
+        all_context_chunks.sort(
+            key=lambda x: (
+                x.get('_combined_score', float(x.get('relevance_score') or 0.0)),
+                float(x.get('relevance_score') or 0.0),
+            ),
+            reverse=True,
+        )
         top_chunks = all_context_chunks[:5]
             
         if not top_chunks:
@@ -429,7 +463,7 @@ class ConversationViewSet(viewsets.ModelViewSet):
                 'page': page_number,
                 'title': hierarchical_title,
                 'relevance_score': chunk.get('relevance_score'),
-                'preview': chunk.get('text', '')[:320]
+                'preview': chunk.get('text', '')
             })
 
             # Log detailed context for observability
@@ -473,7 +507,17 @@ class ConversationViewSet(viewsets.ModelViewSet):
             
         except Exception as e:
             logger.error(f"LLM API error: {str(e)}")
-            raise
+            fallback_response = (
+                "LLM response अहिले उपलब्ध छैन (quota exceeded )। "
+                "तलका सन्दर्भहरू हेर्नुहोस्, म फेरि उपलब्ध भएपछि पूर्ण उत्तर दिन सक्छु।"
+            )
+            return {
+                'response': fallback_response,
+                'sources': {
+                    'files': source_files,
+                    'citations': citation_entries
+                }
+            }
         
 
 
@@ -524,17 +568,37 @@ class MessageViewSet(viewsets.ModelViewSet):
         message.content = new_content
         message.save()
         
-        # Find and delete the subsequent assistant response if it exists
+        # Remove previous assistant response(s) linked to this user message.
         try:
-            next_message = Message.objects.filter(
+            paired_assistants = Message.objects.filter(
                 conversation=message.conversation,
-                created_at__gt=message.created_at,
-                role='assistant'
-            ).order_by('created_at').first()
-            
-            if next_message:
-                logger.info(f"Deleting old assistant response {next_message.id}")
-                next_message.delete()
+                role='assistant',
+                parent_message=message
+            )
+
+            if paired_assistants.exists():
+                logger.info(f"Deleting {paired_assistants.count()} linked assistant response(s) for message {message.id}")
+                paired_assistants.delete()
+            else:
+                # Backward compatibility for old records without parent linkage.
+                next_user = Message.objects.filter(
+                    conversation=message.conversation,
+                    role='user',
+                    created_at__gt=message.created_at
+                ).order_by('created_at').first()
+
+                legacy_assistant_qs = Message.objects.filter(
+                    conversation=message.conversation,
+                    role='assistant',
+                    created_at__gt=message.created_at,
+                )
+                if next_user:
+                    legacy_assistant_qs = legacy_assistant_qs.filter(created_at__lt=next_user.created_at)
+
+                legacy_assistant = legacy_assistant_qs.order_by('created_at').first()
+                if legacy_assistant:
+                    logger.info(f"Deleting legacy assistant response {legacy_assistant.id}")
+                    legacy_assistant.delete()
         except Exception as e:
             logger.warning(f"Could not delete old assistant response: {e}")
         
@@ -555,10 +619,11 @@ class MessageViewSet(viewsets.ModelViewSet):
             assistant_content = response_data['response']
             sources_payload = response_data.get('sources', {})
             
-            # Create new assistant message
+            # Create new assistant message linked to edited user message
             assistant_message = Message.objects.create(
                 conversation=message.conversation,
                 role='assistant',
+                parent_message=message,
                 content=assistant_content,
                 sources=sources_payload
             )

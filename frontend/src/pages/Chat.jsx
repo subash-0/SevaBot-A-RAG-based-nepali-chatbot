@@ -22,6 +22,9 @@ export default function Chat() {
   const [isDark, setIsDark] = useState(false);
   const [romanizedTypingEnabled, setRomanizedTypingEnabled] = useState(true);
   const [selectedCitation, setSelectedCitation] = useState(null);
+  const [regeneratingMessageId, setRegeneratingMessageId] = useState(null);
+  const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
+  const [processingConversationId, setProcessingConversationId] = useState(null);
 
   const formatChatTimestamp = (isoString) => {
     if (!isoString) return '';
@@ -71,8 +74,9 @@ export default function Chat() {
   }, [romanizedTypingEnabled]);
 
   useEffect(() => {
+    if (!autoScrollEnabled) return;
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, autoScrollEnabled]);
 
   const loadConversations = async () => {
     try {
@@ -93,10 +97,16 @@ export default function Chat() {
       const lastAssistantWithSources = [...msgs].reverse().find((m) => m.role === 'assistant' && m.sources);
       setLastSources(lastAssistantWithSources?.sources || null);
       setSelectedCitation(null);
+      setRegeneratingMessageId(null);
       setSidebarOpen(false);
     } catch (error) {
       console.error('Failed to load conversation:', error);
     }
+  };
+
+  const getLatestUserMessageId = (sourceMessages = messages) => {
+    const latestUser = [...sourceMessages].reverse().find((message) => message.role === 'user');
+    return latestUser?.id ?? null;
   };
 
   const startNewChat = async () => {
@@ -116,6 +126,8 @@ export default function Chat() {
   };
 
   const sendMessageToConversation = async (conversationId, content) => {
+    setAutoScrollEnabled(true);
+    setProcessingConversationId(conversationId);
     setLoading(true);
     const tempUserMessage = {
       id: Date.now(),
@@ -145,6 +157,7 @@ export default function Chat() {
       alert('प्रश्न पठाउन असफल भयो। पुन: प्रयास गर्नुहोस्।');
     } finally {
       setLoading(false);
+      setProcessingConversationId(null);
     }
   };
 
@@ -179,6 +192,7 @@ export default function Chat() {
   };
 
   const handleStartEdit = (message) => {
+    if (message.id !== getLatestUserMessageId()) return;
     setEditingMessageId(message.id);
     setEditRawContent(message.content);
   };
@@ -189,8 +203,16 @@ export default function Chat() {
   };
 
   const handleSaveEdit = async (messageId) => {
+    if (messageId !== getLatestUserMessageId()) {
+      return;
+    }
+
     const toSend = romanizedTypingEnabled ? transliterate(editRawContent).trim() : editRawContent.trim();
     if (!toSend) return;
+    const previousMessages = [...messages];
+
+    // Keep viewport anchored around edited message while regenerating.
+    setAutoScrollEnabled(false);
 
     // Optimistically update user message text and remove following assistant reply while loading
     setMessages((prev) => {
@@ -205,27 +227,33 @@ export default function Chat() {
       return updated;
     });
     setLastSources(null);
+    setProcessingConversationId(activeConversation?.id ?? null);
+    setRegeneratingMessageId(messageId);
     setLoading(true);
     try {
       const response = await messageAPI.update(messageId, toSend);
       setMessages((prev) => {
-        const filtered = prev.filter((message) => message.id !== messageId);
-        const userMsgIndex = prev.findIndex((message) => message.id === messageId);
-        if (userMsgIndex !== -1 && userMsgIndex + 1 < prev.length) {
-          const nextMsg = prev[userMsgIndex + 1];
-          if (nextMsg.role === 'assistant') {
-            return [
-              ...filtered.filter((message) => message.id !== nextMsg.id),
-              response.data.user_message,
-              response.data.assistant_message,
-            ].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-          }
+        const updated = [...prev];
+        const originalIndex = updated.findIndex((message) => message.id === messageId);
+        if (originalIndex === -1) {
+          return prev;
         }
-        return [
-          ...filtered,
-          response.data.user_message,
-          response.data.assistant_message,
-        ].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+        // Remove edited user + its immediate assistant pair from old timeline position.
+        updated.splice(originalIndex, 1);
+        if (originalIndex < updated.length && updated[originalIndex].role === 'assistant') {
+          updated.splice(originalIndex, 1);
+        }
+
+        // Remove any duplicates from API payload, then reinsert exactly at original position.
+        const deduped = updated.filter(
+          (message) =>
+            message.id !== response.data.user_message.id &&
+            message.id !== response.data.assistant_message.id
+        );
+
+        deduped.splice(originalIndex, 0, response.data.user_message, response.data.assistant_message);
+        return deduped;
       });
 
       if (response.data.sources) {
@@ -236,9 +264,14 @@ export default function Chat() {
       setEditRawContent('');
     } catch (error) {
       console.error('Failed to edit message:', error);
+      setMessages(previousMessages);
       alert('सन्देश सम्पादन असफल भयो।');
     } finally {
       setLoading(false);
+      setRegeneratingMessageId(null);
+      setProcessingConversationId(null);
+      // Re-enable for future normal sends (no immediate jump because effect triggers on message changes).
+      setAutoScrollEnabled(true);
     }
   };
 
@@ -259,6 +292,8 @@ export default function Chat() {
         setMessages([]);
         setLastSources(null);
         setSelectedCitation(null);
+        setProcessingConversationId(null);
+        setRegeneratingMessageId(null);
       }
     } catch (error) {
       console.error('Failed to delete conversation:', error);
@@ -428,7 +463,8 @@ export default function Chat() {
           ) : (
             <div className="max-w-4xl mx-auto space-y-5">
               {messages.map((message, index) => (
-                <div key={message.id} className={`flex message-enter ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div key={message.id}>
+                  <div className={`flex message-enter ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-[90%] md:max-w-[78%] rounded-2xl px-4 py-3 md:px-5 md:py-4 shadow-sm ${message.role === 'user' ? 'bg-primary-900 text-white shadow-primary-900/20' : isDark ? 'bg-slate-900/90 border border-slate-700 text-slate-100' : 'bg-white/95 border border-primary-200 text-primary-800'}`}>
                     {message.role === 'assistant' && (
                       <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-primary-100">
@@ -458,12 +494,12 @@ export default function Chat() {
                         {message.role === 'assistant' && (
                           <>
                             {renderCitationChips(message.sources || (index === messages.length - 1 ? lastSources : null))}
-                            {renderSourceBadges(message.sources || (index === messages.length - 1 ? lastSources : null))}
+                            {/* {renderSourceBadges(message.sources || (index === messages.length - 1 ? lastSources : null))} */}
                           </>
                         )}
                         <div className="flex items-center justify-between mt-3">
                           <div className={`text-[10px] ${message.role === 'user' ? 'text-primary-300' : 'text-primary-500'}`}>{formatChatTimestamp(message.created_at)}</div>
-                          {message.role === 'user' && (
+                          {message.role === 'user' && message.id === getLatestUserMessageId() && (
                             <button onClick={() => handleStartEdit(message)} className="p-1.5 hover:bg-white/10 rounded-lg transition" title="सम्पादन गर्नुहोस्"><svg className="w-3.5 h-3.5 text-primary-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
                           )}
                         </div>
@@ -471,9 +507,26 @@ export default function Chat() {
                     )}
                   </div>
                 </div>
+
+                  {regeneratingMessageId === message.id && message.role === 'user' && processingConversationId === activeConversation?.id && (
+                    <div className="flex justify-start message-enter mt-2">
+                      <div className={`rounded-2xl border px-4 py-3 shadow-sm ${isDark ? 'border-slate-700 bg-slate-900 text-slate-100' : 'border-primary-200 bg-white text-primary-800'}`}>
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 bg-primary-100 rounded-lg flex items-center justify-center"><span className="text-xs">⚖️</span></div>
+                          <span className={`text-xs ${isDark ? 'text-slate-300' : 'text-primary-600'}`}>Retrieving & reranking...</span>
+                          <div className="flex gap-1 ml-1">
+                            <div className="w-1.5 h-1.5 bg-primary-400 rounded-full typing-dot"></div>
+                            <div className="w-1.5 h-1.5 bg-primary-400 rounded-full typing-dot"></div>
+                            <div className="w-1.5 h-1.5 bg-primary-400 rounded-full typing-dot"></div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               ))}
 
-              {loading && (
+              {loading && !regeneratingMessageId && processingConversationId === activeConversation?.id && (
                 <div className="flex justify-start message-enter">
                   <div className="rounded-2xl border border-primary-200 bg-white px-4 py-3 shadow-sm">
                     <div className="flex items-center gap-2"><div className="w-6 h-6 bg-primary-100 rounded-lg flex items-center justify-center"><span className="text-xs">⚖️</span></div><span className="text-xs text-primary-600">Retrieving & reranking...</span><div className="flex gap-1 ml-1"><div className="w-1.5 h-1.5 bg-primary-400 rounded-full typing-dot"></div><div className="w-1.5 h-1.5 bg-primary-400 rounded-full typing-dot"></div><div className="w-1.5 h-1.5 bg-primary-400 rounded-full typing-dot"></div></div></div>

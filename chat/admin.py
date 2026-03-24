@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Conversation, Message
+from .models import Conversation, Message, Document
 
 @admin.register(Conversation)
 class ConversationAdmin(admin.ModelAdmin):
@@ -14,3 +14,6 @@ class MessageAdmin(admin.ModelAdmin):
     
     def content_preview(self, obj):
         return obj.content[:50]
+    
+
+admin.site.register(Document)
